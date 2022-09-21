@@ -10,16 +10,16 @@ def main():
         files = os.listdir(IMAGES_DIR)
         if len(files) > 0:
             for f in files:
-                split_cencus_image(IMAGES_DIR / f)
+                split_census_image(IMAGES_DIR / f)
         else:
             print(f"Error: no images found at {IMAGES_DIR}")
     else:
         print(f"Error: Image file not found at {IMAGES_DIR}")
         os.mkdir(IMAGES_DIR)
-        print("Created image directory. Please populate it with images of the cencus cards")
+        print("Created image directory. Please populate it with images of the census cards")
 
 
-def split_cencus_image(path: str) -> None:
+def split_census_image(path: str) -> None:
     print(f"displaying: {path}")
     image = cv2.imread(str(path))
     to_display = image.copy()
