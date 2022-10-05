@@ -2,7 +2,7 @@ import cv2
 import os
 import numpy as np
 
-from constants import *
+from constants import VERTEX_OFFSET, IMAGES_DIR
 
 
 class BunkerHillCard:
@@ -45,26 +45,31 @@ class BunkerHillCard:
 
                 # Find and sort the edges of the box
                 self.selections.sort(key=lambda x: x[0])
-                self.curr_box["top_left"] = self.selections[0] if self.selections[0][1] < self.selections[1][1] else self.selections[1]
-                self.curr_box["bottom_left"] = self.selections[1] if self.selections[0][1] < self.selections[1][1] else self.selections[0]
-                self.curr_box["top_right"] = self.selections[2] if self.selections[2][1] < self.selections[3][1] else self.selections[3]
-                self.curr_box["bottom_right"] = self.selections[3] if self.selections[2][1] < self.selections[3][1] else self.selections[2]
+                llx = self.selections[0]
+                lx = self.selections[1]
+                rx = self.selections[2]
+                rrx = self.selections[3]
 
                 tl = self.curr_box["top_left"]
                 tr = self.curr_box["top_right"]
                 bl = self.curr_box["bottom_left"]
                 br = self.curr_box["bottom_right"]
 
-                # Draw completed box
+                tl = llx if llx[1] < lx[1] else lx
+                bl = lx if llx[1] < lx[1] else llx
+                tr = rx if rx[1] < rrx[1] else rrx
+                br = rrx if rx[1] < rrx[1] else rx
 
+                # Draw completed box
                 cv2.line(self.marked, tl, tr, self.curr_box["color"], 2)
                 cv2.line(self.marked, tl, bl, self.curr_box["color"], 2)
                 cv2.line(self.marked, bl, br, self.curr_box["color"], 2)
                 cv2.line(self.marked, br, tr, self.curr_box["color"], 2)
 
                 font = cv2.FONT_HERSHEY_SIMPLEX
-                cv2.putText(self.marked, f"box{len(self.boxes)}" , (tl[0]+20,tl[1]+30), font, 1, self.curr_box["color"], 2, cv2.LINE_AA)
-                
+                cv2.putText(self.marked, f"box{len(self.boxes)}",
+                            (tl[0]+20, tl[1]+30), font, 1, self.curr_box["color"], 2, cv2.LINE_AA)
+
                 # Save the box and reset curr
                 self.boxes[f"box{len(self.boxes)}"] = self.curr_box
                 self.initiate_box()
@@ -72,8 +77,8 @@ class BunkerHillCard:
 
     def define_box_edges(self) -> None:
         """
-        Takes in the path to a census card and allows the user to select the edges of the census card to split the card 
-        into different sub-sections for individual analysis. When run the user will need to select a point to draw 
+        Takes in the path to a census card and allows the user to select the edges of the census card to split the card
+        into different sub-sections for individual analysis. When run the user will need to select a point to draw
         individual boxes around the census card.
 
         Args:
@@ -108,7 +113,7 @@ class BunkerHillCard:
 def split_census_image(path: str) -> None:
     print(f"displaying: {path}")
     image = cv2.imread(str(path))
-    to_display = image.copy()
+    # to_display = image.copy()
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     edges = cv2.Canny(image, threshold1=100, threshold2=800)
 
@@ -158,4 +163,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-    # TODO: next implementation, manually enter a bounding box near each vertecy and software will auto line up.
+    # TODO: next implementation, manually enter a bounding box near each vertex and software will auto line up.
