@@ -1,8 +1,9 @@
+from concurrent.futures import process
 import cv2
 import os
 import numpy as np
 
-from constants import VERTEX_OFFSET, IMAGES_DIR
+from constants import DEFAULT_VERTEX_OFFSET, DEFAULT_STROKE_SIZE, IMAGES_DIR
 
 
 class BunkerHillCard:
@@ -13,6 +14,8 @@ class BunkerHillCard:
     last_undo = None
     curr_box = {}
     selections = []
+    vertex_offset = DEFAULT_VERTEX_OFFSET
+    stroke_size = DEFAULT_STROKE_SIZE
 
     def __init__(self, path: str) -> None:
         self.original = cv2.imread(str(path))
@@ -36,7 +39,8 @@ class BunkerHillCard:
 
         marked = self.original.copy()
         if self.showing_marked:
-
+            vertex_offset = self.vertex_offset
+            ss = self.stroke_size
             # Draw completed boxes
             for i, b in enumerate(self.boxes):
                 c = b["color"]
@@ -46,36 +50,36 @@ class BunkerHillCard:
                 br = b["bottom_right"]
 
                 # Draw lines around 4 points
-                cv2.line(marked, (tl[0]+VERTEX_OFFSET, tl[1]), (tr[0]-VERTEX_OFFSET, tr[1]), c, 2)
-                cv2.line(marked, (tl[0], tl[1]+VERTEX_OFFSET), (bl[0], bl[1]-VERTEX_OFFSET), c, 2)
-                cv2.line(marked, (bl[0]+VERTEX_OFFSET, bl[1]), (br[0]-VERTEX_OFFSET, br[1]), c, 2)
-                cv2.line(marked, (br[0], br[1]-VERTEX_OFFSET), (tr[0], tr[1]+VERTEX_OFFSET), c, 2)
+                cv2.line(marked, (tl[0]+vertex_offset, tl[1]), (tr[0]-vertex_offset, tr[1]), c, ss)
+                cv2.line(marked, (tl[0], tl[1]+vertex_offset), (bl[0], bl[1]-vertex_offset), c, ss)
+                cv2.line(marked, (bl[0]+vertex_offset, bl[1]), (br[0]-vertex_offset, br[1]), c, ss)
+                cv2.line(marked, (br[0], br[1]-vertex_offset), (tr[0], tr[1]+vertex_offset), c, ss)
 
                 # Draw search zones around 4 points
-                tlz_tl = (tl[0]-VERTEX_OFFSET, tl[1]+VERTEX_OFFSET)
-                tlz_br = (tl[0]+VERTEX_OFFSET, tl[1]-VERTEX_OFFSET)
-                cv2.rectangle(marked, tlz_tl, tlz_br, c, 2)
+                tlz_tl = (tl[0]-vertex_offset, tl[1]+vertex_offset)
+                tlz_br = (tl[0]+vertex_offset, tl[1]-vertex_offset)
+                cv2.rectangle(marked, tlz_tl, tlz_br, c, ss)
 
-                trz_tl = (tr[0]-VERTEX_OFFSET, tr[1]+VERTEX_OFFSET)
-                trz_br = (tr[0]+VERTEX_OFFSET, tr[1]-VERTEX_OFFSET)
-                cv2.rectangle(marked, trz_tl, trz_br, c, 2)
+                trz_tl = (tr[0]-vertex_offset, tr[1]+vertex_offset)
+                trz_br = (tr[0]+vertex_offset, tr[1]-vertex_offset)
+                cv2.rectangle(marked, trz_tl, trz_br, c, ss)
 
-                blz_tl = (bl[0]-VERTEX_OFFSET, bl[1]+VERTEX_OFFSET)
-                blz_br = (bl[0]+VERTEX_OFFSET, bl[1]-VERTEX_OFFSET)
-                cv2.rectangle(marked, blz_tl, blz_br, c, 2)
+                blz_tl = (bl[0]-vertex_offset, bl[1]+vertex_offset)
+                blz_br = (bl[0]+vertex_offset, bl[1]-vertex_offset)
+                cv2.rectangle(marked, blz_tl, blz_br, c, ss)
 
-                brz_tl = (br[0]-VERTEX_OFFSET, br[1]+VERTEX_OFFSET)
-                brz_br = (br[0]+VERTEX_OFFSET, br[1]-VERTEX_OFFSET)
-                cv2.rectangle(marked, brz_tl, brz_br, c, 2)
+                brz_tl = (br[0]-vertex_offset, br[1]+vertex_offset)
+                brz_br = (br[0]+vertex_offset, br[1]-vertex_offset)
+                cv2.rectangle(marked, brz_tl, brz_br, c, ss)
 
                 font = cv2.FONT_HERSHEY_SIMPLEX
-                cv2.putText(marked, f"box{i}", (tl[0]+20, tl[1]+30), font, 1, c, 2, cv2.LINE_AA)
+                cv2.putText(marked, f"box{i}", (tl[0]+20, tl[1]+30), font, 1, c, ss, cv2.LINE_AA)
 
             # Draw current selection(s)
             for s in self.selections:
-                box_draw_tl = (s[0]-VERTEX_OFFSET, s[1]+VERTEX_OFFSET)
-                box_draw_br = (s[0]+VERTEX_OFFSET, s[1]-VERTEX_OFFSET)
-                cv2.rectangle(marked, box_draw_tl, box_draw_br, self.curr_box["color"], 2)
+                box_draw_tl = (s[0]-vertex_offset, s[1]+vertex_offset)
+                box_draw_br = (s[0]+vertex_offset, s[1]-vertex_offset)
+                cv2.rectangle(marked, box_draw_tl, box_draw_br, self.curr_box["color"], ss)
 
         cv2.imshow('image', marked if self.showing_marked else self.original)
 
@@ -156,6 +160,28 @@ class BunkerHillCard:
             else:
                 print("Nothing to undo...")
 
+    def help(self) -> None:
+        """
+        Print out the help menu to the terminal
+        """
+        outp = "================================Census Selector================================\n"
+        outp += "This is a function that helps the user select each sub-data field for each\n"
+        outp += "census card. To use, click the screen around the vertex of each section's box.\n"
+        outp += "Once you have drawn a box around each subfield hit enter and the program will\n"
+        outp += "save your selections so it can run data analysis on the census cards. Below is\n"
+        outp += "a list of each button you can use while drawing the boxes:\n\n"
+        outp += "_______________________________________________________________________________\n"
+        outp += "\"h\'=Help: print this help menu to the terminal\n"
+        outp += "\'u\'=Undo: Undo your last action\n"
+        outp += "\'r\'=Redo: Redo the last undo\n"
+        outp += "\'d\'=Display: Toggle between displaying and hiding the boxes you have drawn\n"
+        outp += "\'+\'=Increase Vertex Size: Increase the search distance for each box vertex\n"
+        outp += "\'-\'=Decrease Vertex Size: Decrease the search distance for each box vertex\n"
+        outp += "\'q\'=Quit: Quit the application\n"
+        outp += "\'s\'=Save: saves your selections as sub-problems. Only use when you are done!\n"
+        outp += "===============================================================================\n"
+        print(outp)
+
     def define_box_edges(self) -> None:
         """
         Takes in the path to a census card and allows the user to select the edges of the census card to split the card
@@ -178,12 +204,28 @@ class BunkerHillCard:
             k = cv2.waitKey(1)
             if k == 3014656:
                 cv2.destroyAllWindows()
-            elif k == ord("h"):
+            elif k == ord("d"):
                 self.showing_marked = not self.showing_marked
+                print("Displaying boxes" if self.showing_marked else "Hiding boxes")
             elif k == ord("u"):
                 self.undo_last_action()
             elif k == ord("r"):
                 self.redo_last_undo()
+            elif k == ord("h"):
+                self.help()
+            elif k == ord("+") or k == ord("="):
+                self.vertex_offset += 1
+                print(f"Vertex size: {self.vertex_offset}")
+            elif k == ord("-") or k == ord("_"):
+                self.vertex_offset -= 1
+                print(f"Vertex size: {self.vertex_offset}")
+            elif k == ord("}") or k == ord("]"):
+                self.stroke_size += 1
+                print(f"Stroke size: {self.stroke_size}")
+            elif k == ord("{") or k == ord("["):
+                if self.stroke_size > 1:
+                    self.stroke_size -= 1
+                print(f"Stroke size: {self.stroke_size}")
             elif k == ord("q"):
                 cv2.destroyAllWindows()
                 break
@@ -226,16 +268,22 @@ def split_census_image(path: str) -> None:
     cv2.destroyAllWindows()
 
 
+def process_cards(files: list[str]):
+
+    if len(files) > 0:
+        for f in files:
+            bhc = BunkerHillCard(IMAGES_DIR / f)
+            bhc.help()
+            bhc.define_box_edges()
+    else:
+        print(f"Error: no images found at {IMAGES_DIR}")
+
+
 def main():
     if os.path.exists(IMAGES_DIR):
-        print(IMAGES_DIR)
+        print(f"Image location: {IMAGES_DIR}")
         files = os.listdir(IMAGES_DIR)
-        if len(files) > 0:
-            for f in files:
-                bhc = BunkerHillCard(IMAGES_DIR / f)
-                bhc.define_box_edges()
-        else:
-            print(f"Error: no images found at {IMAGES_DIR}")
+        process_cards(files)
     else:
         print(f"Error: Image file not found at {IMAGES_DIR}")
         os.mkdir(IMAGES_DIR)
