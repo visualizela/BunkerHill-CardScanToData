@@ -8,13 +8,14 @@ from constants import VERTEX_OFFSET, IMAGES_DIR
 class BunkerHillCard:
     path = None
     image = None
-    boxes = {}
+    showing_marked = True
+    boxes = []
+    last_undo = None
     curr_box = {}
     selections = []
 
     def __init__(self, path: str) -> None:
         self.original = cv2.imread(str(path))
-        self.marked = self.original.copy()
         self.path = path
         self.initiate_box()
 
@@ -27,53 +28,133 @@ class BunkerHillCard:
             "bottom_right": (0, 0)
         }
 
-    def click_event(self, event, x, y, flags, params) -> None:
+    def draw_image(self) -> None:
+        """
+        Shows the census card image either with or without annotations depending on `showing_marked` flag. Redrawing
+        the annotations each frame makes ensures the drawn image correctly reflects the state of the drawn boxes
+        """
 
-        if event == cv2.EVENT_LBUTTONDOWN:
+        marked = self.original.copy()
+        if self.showing_marked:
 
-            # displaying the coordinates
-            # on the Shell
-            print(x, ' ', y)
+            # Draw completed boxes
+            for i, b in enumerate(self.boxes):
+                c = b["color"]
+                tl = b["top_left"]
+                tr = b["top_right"]
+                bl = b["bottom_left"]
+                br = b["bottom_right"]
 
-            self.selections.append((x, y))
-            cv2.rectangle(self.marked, (x-VERTEX_OFFSET, y+VERTEX_OFFSET),
-                          (x+VERTEX_OFFSET, y-VERTEX_OFFSET), self.curr_box["color"], 2)
+                # Draw lines around 4 points
+                cv2.line(marked, (tl[0]+VERTEX_OFFSET, tl[1]), (tr[0]-VERTEX_OFFSET, tr[1]), c, 2)
+                cv2.line(marked, (tl[0], tl[1]+VERTEX_OFFSET), (bl[0], bl[1]-VERTEX_OFFSET), c, 2)
+                cv2.line(marked, (bl[0]+VERTEX_OFFSET, bl[1]), (br[0]-VERTEX_OFFSET, br[1]), c, 2)
+                cv2.line(marked, (br[0], br[1]-VERTEX_OFFSET), (tr[0], tr[1]+VERTEX_OFFSET), c, 2)
 
-            cv2.imshow('image', self.marked)
-            print(f"{len(self.selections)}")
-            if len(self.selections) == 4:
+                # Draw search zones around 4 points
+                tlz_tl = (tl[0]-VERTEX_OFFSET, tl[1]+VERTEX_OFFSET)
+                tlz_br = (tl[0]+VERTEX_OFFSET, tl[1]-VERTEX_OFFSET)
+                cv2.rectangle(marked, tlz_tl, tlz_br, c, 2)
 
-                # Find and sort the edges of the box
-                self.selections.sort(key=lambda x: x[0])
-                llx = self.selections[0]
-                lx = self.selections[1]
-                rx = self.selections[2]
-                rrx = self.selections[3]
+                trz_tl = (tr[0]-VERTEX_OFFSET, tr[1]+VERTEX_OFFSET)
+                trz_br = (tr[0]+VERTEX_OFFSET, tr[1]-VERTEX_OFFSET)
+                cv2.rectangle(marked, trz_tl, trz_br, c, 2)
 
-                tl = self.curr_box["top_left"]
-                tr = self.curr_box["top_right"]
-                bl = self.curr_box["bottom_left"]
-                br = self.curr_box["bottom_right"]
+                blz_tl = (bl[0]-VERTEX_OFFSET, bl[1]+VERTEX_OFFSET)
+                blz_br = (bl[0]+VERTEX_OFFSET, bl[1]-VERTEX_OFFSET)
+                cv2.rectangle(marked, blz_tl, blz_br, c, 2)
 
-                tl = llx if llx[1] < lx[1] else lx
-                bl = lx if llx[1] < lx[1] else llx
-                tr = rx if rx[1] < rrx[1] else rrx
-                br = rrx if rx[1] < rrx[1] else rx
-
-                # Draw completed box
-                cv2.line(self.marked, tl, tr, self.curr_box["color"], 2)
-                cv2.line(self.marked, tl, bl, self.curr_box["color"], 2)
-                cv2.line(self.marked, bl, br, self.curr_box["color"], 2)
-                cv2.line(self.marked, br, tr, self.curr_box["color"], 2)
+                brz_tl = (br[0]-VERTEX_OFFSET, br[1]+VERTEX_OFFSET)
+                brz_br = (br[0]+VERTEX_OFFSET, br[1]-VERTEX_OFFSET)
+                cv2.rectangle(marked, brz_tl, brz_br, c, 2)
 
                 font = cv2.FONT_HERSHEY_SIMPLEX
-                cv2.putText(self.marked, f"box{len(self.boxes)}",
-                            (tl[0]+20, tl[1]+30), font, 1, self.curr_box["color"], 2, cv2.LINE_AA)
+                cv2.putText(marked, f"box{i}", (tl[0]+20, tl[1]+30), font, 1, c, 2, cv2.LINE_AA)
+
+            # Draw current selection(s)
+            for s in self.selections:
+                box_draw_tl = (s[0]-VERTEX_OFFSET, s[1]+VERTEX_OFFSET)
+                box_draw_br = (s[0]+VERTEX_OFFSET, s[1]-VERTEX_OFFSET)
+                cv2.rectangle(marked, box_draw_tl, box_draw_br, self.curr_box["color"], 2)
+
+        cv2.imshow('image', marked if self.showing_marked else self.original)
+
+    def click_event(self, event: int, x: int, y: int, flags, params) -> None:
+        """
+        Draws a box around the selection when the user clicks the screen. After two clicks a box is added around top
+        left and bottom right of of click.
+
+        Args:
+            event (int): cv2 event constant
+            x (int): x location pixel value
+            y (int): y location pixel value
+            flags (Any):
+            params (Any):
+        """
+        if event == cv2.EVENT_LBUTTONDOWN:
+
+            # save the selection and print it to terminal
+            self.selections.append((x, y))
+            print(f"box{len(self.boxes)} selection: ({x}, {y})")
+
+            # If the user has selected a box
+            if len(self.selections) == 2:
+
+                # append other two implicit corners
+                self.selections.append((self.selections[0][0], self.selections[1][1]))
+                self.selections.append((self.selections[1][0], self.selections[0][1]))
+
+                # Find and sort the edges of the box
+                self.selections.sort(key=lambda i: i[0])
+                s0 = self.selections[0]
+                s1 = self.selections[1]
+                s2 = self.selections[2]
+                s3 = self.selections[3]
+                self.curr_box["top_left"] = s0 if s0[1] < s1[1] else s1
+                self.curr_box["bottom_left"] = s1 if s0[1] < s1[1] else s0
+                self.curr_box["top_right"] = s2 if s2[1] < s3[1] else s3
+                self.curr_box["bottom_right"] = s3 if s2[1] < self.selections[3][1] else s2
 
                 # Save the box and reset curr
-                self.boxes[f"box{len(self.boxes)}"] = self.curr_box
+                self.boxes.append(self.curr_box)
                 self.initiate_box()
                 self.selections = []
+
+    def redo_last_undo(self) -> None:
+        """
+        Undoes the last redo action
+        """
+        if self.last_undo is not None:
+            if type(self.last_undo) == list:
+                self.selections = self.last_undo
+                self.last_undo = None
+                print("Redoing most recent selection(s)")
+            elif type(self.last_undo) == dict:
+                self.boxes.append(self.last_undo)
+                self.last_undo = None
+                print("Redoing most recent box")
+            else:
+                print("Error: unknown type in last_undo variable")
+        else:
+            print("Nothing to undo...")
+
+    def undo_last_action(self) -> None:
+        """
+        Removes the most recent action from its respective list. If the last action was defining a box vertex it will
+        reset the box selection list. If the most recent action was creating a box it will pop the box off the top of
+        the box list.
+        """
+        if len(self.selections) > 0:
+            print("Removing current selection(s)")
+            self.last_undo = self.selections
+            self.selections = []
+        else:
+            if len(self.boxes) > 0:
+                print("Removing most recent box")
+                self.last_undo = self.boxes[-1]
+                self.boxes.pop()
+            else:
+                print("Nothing to undo...")
 
     def define_box_edges(self) -> None:
         """
@@ -92,17 +173,17 @@ class BunkerHillCard:
         cv2.namedWindow("image")
         cv2.setMouseCallback('image', self.click_event)
 
-        showing_marked = True
-
         while True:
-            # wait for a key to be pressed to exit
-            cv2.imshow(
-                'image', self.marked if showing_marked else self.original)
+            self.draw_image()
             k = cv2.waitKey(1)
             if k == 3014656:
                 cv2.destroyAllWindows()
             elif k == ord("h"):
-                showing_marked = not showing_marked
+                self.showing_marked = not self.showing_marked
+            elif k == ord("u"):
+                self.undo_last_action()
+            elif k == ord("r"):
+                self.redo_last_undo()
             elif k == ord("q"):
                 cv2.destroyAllWindows()
                 break
