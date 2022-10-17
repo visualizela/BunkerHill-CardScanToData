@@ -1,9 +1,9 @@
-from concurrent.futures import process
 import cv2
-import os
+import json
 import numpy as np
+import os
 
-from constants import DEFAULT_VERTEX_OFFSET, DEFAULT_STROKE_SIZE, IMAGES_DIR
+from constants import DATA_DIR, DEFAULT_VERTEX_OFFSET, DEFAULT_STROKE_SIZE, IMAGES_DIR, BOXED_PATH, SLICED_CARDS
 
 
 class BunkerHillCard:
@@ -16,10 +16,16 @@ class BunkerHillCard:
     selections = []
     vertex_offset = DEFAULT_VERTEX_OFFSET
     stroke_size = DEFAULT_STROKE_SIZE
+    box_json = {}
 
     def __init__(self, path: str) -> None:
         self.original = cv2.imread(str(path))
         self.path = path
+        metadata = {}
+        metadata["path"] = os.path.abspath(path)
+        metadata["name"] = os.path.basename(path).split(".")[0]
+        self.box_json["metadata"] = metadata
+
         self.initiate_box()
 
     def initiate_box(self) -> None:
@@ -160,6 +166,24 @@ class BunkerHillCard:
             else:
                 print("Nothing to undo...")
 
+    def save_outline(self):
+        """
+        Save the selections json to be analyzed later
+        """
+        if len(self.boxes) < 1:
+            print("You cannot save without selecting any boxes... Please make a selection")
+            return
+
+        self.box_json["metadata"]["vertex_offset"] = self.vertex_offset
+        self.box_json["metadata"]["stroke_size"] = self.stroke_size
+        self.box_json["metadata"]["total_boxes"] = len(self.boxes)
+        self.box_json["boxes"] = self.boxes
+
+        with open(os.path.join(BOXED_PATH, self.box_json["metadata"]["name"]), 'w', encoding='utf-8') as f:
+            json.dump(self.box_json, f, ensure_ascii=False, indent=3)
+
+        print("selections have been saved")
+
     def help(self) -> None:
         """
         Print out the help menu to the terminal
@@ -225,18 +249,17 @@ class BunkerHillCard:
             elif k == ord("{") or k == ord("["):
                 if self.stroke_size > 1:
                     self.stroke_size -= 1
-                print(f"Stroke size: {self.stroke_size}")
+            elif k == ord("s"):
+                print("saving")
+                self.save_outline()
             elif k == ord("q"):
                 cv2.destroyAllWindows()
                 break
-
-        # close the window
 
 
 def split_census_image(path: str) -> None:
     print(f"displaying: {path}")
     image = cv2.imread(str(path))
-    # to_display = image.copy()
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     edges = cv2.Canny(image, threshold1=100, threshold2=800)
 
@@ -246,14 +269,6 @@ def split_census_image(path: str) -> None:
 
     cv2.imshow('thresh', thresh)
 
-    # for c in contours:
-    # cnt = []
-    # to_display = image.copy()
-    # if cv2.contourArea(c) > 600:
-    #     cnt.append(c)
-    #     cv2.drawContours(to_display, cnt, -1, (255,0,0), 2)
-    #     cv2.imshow('Original image',to_display)
-    #     cv2.waitKey(0)
     for c in contours:
         x, y, w, h = cv2.boundingRect(c)
         area = w*h
@@ -279,17 +294,45 @@ def process_cards(files: list[str]):
         print(f"Error: no images found at {IMAGES_DIR}")
 
 
+def initiate_directory() -> bool:
+    """
+    Setup local directories and verify everything is intact
+
+    Returns:
+        bool: True if program is ready to run, False if some user action is required
+    """
+
+    ready_to_run = True
+    # Make image directory if it doesnt exist
+    if not os.path.exists(IMAGES_DIR):
+        print(f"Error: Image file not found at {IMAGES_DIR}")
+        os.mkdir(IMAGES_DIR)
+        print("Created image directory. Please populate it with images of the census cards")
+        ready_to_run = False
+
+    if not os.path.exists(DATA_DIR):
+        print(f"INFO: data dir not found, creating one at: {DATA_DIR}")
+        os.mkdir(DATA_DIR)
+
+    if not os.path.exists(BOXED_PATH):
+        print(f"INFO: Box json dir not found, creating one at: {BOXED_PATH}")
+        os.mkdir(BOXED_PATH)
+
+    if not os.path.exists(SLICED_CARDS):
+        print(f"INFO: card slice dir not found, creating one at: {SLICED_CARDS}")
+        os.mkdir(SLICED_CARDS)
+
+    return ready_to_run
+
+
 def main():
-    if os.path.exists(IMAGES_DIR):
+    if initiate_directory():
         print(f"Image location: {IMAGES_DIR}")
         files = os.listdir(IMAGES_DIR)
         process_cards(files)
     else:
-        print(f"Error: Image file not found at {IMAGES_DIR}")
-        os.mkdir(IMAGES_DIR)
-        print("Created image directory. Please populate it with images of the census cards")
+        print("Quitting...")
 
 
 if __name__ == "__main__":
     main()
-    # TODO: next implementation, manually enter a bounding box near each vertex and software will auto line up.
