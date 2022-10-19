@@ -25,6 +25,12 @@ class BunkerHillCard:
     cursor_is_box = False
 
     def __init__(self, path: str) -> None:
+        """
+        Initiate class variables
+
+        Args:
+            path (str): path to card
+        """
         self.original = cv2.imread(str(path))
         self.path = path
         metadata = {}
@@ -35,26 +41,40 @@ class BunkerHillCard:
         self.initiate_box()
 
     def initiate_box(self) -> None:
+        """
+        Initiate an empty box json
+        """
+
         self.curr_box = {
             "name": None,
             "color": (np.random.randint(0, 256), np.random.randint(0, 256), np.random.randint(0, 256)),
-            "top_left": (0, 0),
-            "top_right": (0, 0),
-            "bottom_left": (0, 0),
-            "bottom_right": (0, 0),
+            "top_left_bb": (0, 0),
+            "top_right_bb": (0, 0),
+            "bottom_left_bb": (0, 0),
+            "bottom_right_bb": (0, 0),
             "vertex_offset": self.vertex_offset,
             "stroke_size": self.stroke_size
         }
 
     def _draw_box(self, box: dict, image: np.ndarray) -> np.ndarray:
+        """
+        Draw a box on the given image. Returns an image with the box drawn.
+
+        Args:
+            box (dict): Box to draw
+            image (np.ndarray): image to draw the box on
+
+        Returns:
+            np.ndarray: image with box drawn
+        """
 
         vertex_offset = box["vertex_offset"]
         ss = box["stroke_size"]
         c = box["color"]
-        tl = box["top_left"]
-        tr = box["top_right"]
-        bl = box["bottom_left"]
-        br = box["bottom_right"]
+        tl = box["top_left_bb"]
+        tr = box["top_right_bb"]
+        bl = box["bottom_left_bb"]
+        br = box["bottom_right_bb"]
 
         # Draw lines around 4 points
         cv2.line(image, (tl[0]+vertex_offset, tl[1]), (tr[0]-vertex_offset, tr[1]), c, ss)
@@ -85,6 +105,16 @@ class BunkerHillCard:
         return image
 
     def _draw_selection(self, selection: list, image: np.ndarray) -> np.ndarray:
+        """
+        Draws the current selection on the given image.
+
+        Args:
+            selection (list): list of current selections (points the user has clicked)
+            image (np.ndarray): image to draw the selection on
+
+        Returns:
+            np.ndarray: Image with the selection drawn on it
+        """
         vertex_offset = self.vertex_offset
         ss = self.stroke_size
 
@@ -95,7 +125,7 @@ class BunkerHillCard:
 
     def _draw_mouse_box(self, image: np.ndarray) -> np.ndarray:
         """
-        Draw the bounding box around mouse
+        Draw the bounding box around mouse on the given image.
 
         Args:
             image (np.ndarray): image to draw the mouse on
@@ -109,7 +139,7 @@ class BunkerHillCard:
 
     def draw_image(self) -> None:
         """
-        Shows the census card image either with or without annotations depending on `showing_marked` flag. Redrawing
+        Shows the census card image either with or without annotations depending on the `display_state` flag. Redrawing
         the annotations each frame makes ensures the drawn image correctly reflects the state of the drawn boxes
         """
         to_show = self.original.copy()
@@ -124,9 +154,9 @@ class BunkerHillCard:
             for b in self.boxes:
                 to_show = self._draw_box(b, to_show)
 
-                # Draw current selection(s)
-                for s in self.selections:
-                    to_show = self._draw_selection(s, to_show)
+            # Draw current selection(s)
+            for s in self.selections:
+                to_show = self._draw_selection(s, to_show)
 
         # Draw only current selection or most recent box
         if self.display_state % 3 == 1:
@@ -159,7 +189,7 @@ class BunkerHillCard:
                 # check if we should switch to cursor
                 if (mouse_speed > MOUSE_BOX_SWITCH_TO_CURSOR_SPEED
                    and self.frames_since_cursor_transition > MOUSE_BOX_FLICKER_REDUCTION):
-
+                    win32api.SetCursor(None)
                     self.frames_since_cursor_transition = 0
                     self.cursor_is_box = False
 
@@ -220,10 +250,10 @@ class BunkerHillCard:
                 s1 = self.selections[1]
                 s2 = self.selections[2]
                 s3 = self.selections[3]
-                self.curr_box["top_left"] = s0 if s0[1] < s1[1] else s1
-                self.curr_box["bottom_left"] = s1 if s0[1] < s1[1] else s0
-                self.curr_box["top_right"] = s2 if s2[1] < s3[1] else s3
-                self.curr_box["bottom_right"] = s3 if s2[1] < self.selections[3][1] else s2
+                self.curr_box["top_left_bb"] = s0 if s0[1] < s1[1] else s1
+                self.curr_box["bottom_left_bb"] = s1 if s0[1] < s1[1] else s0
+                self.curr_box["top_right_bb"] = s2 if s2[1] < s3[1] else s3
+                self.curr_box["bottom_right_bb"] = s3 if s2[1] < self.selections[3][1] else s2
                 self.curr_box["name"] = f"box{len(self.boxes)}"
                 self.curr_box["vertex_offset"] = self.vertex_offset
                 self.curr_box["stroke_size"] = self.stroke_size
@@ -347,15 +377,34 @@ class BunkerHillCard:
             elif k == ord("+") or k == ord("="):
                 self.vertex_offset += 1
                 print(f"Vertex size: {self.vertex_offset}")
+                # If there is no selection made adjust most recent box vertex offset
+                if len(self.selections) == 0:
+                    self.boxes[-1]["vertex_offset"] += 1
+
             elif k == ord("-") or k == ord("_"):
-                self.vertex_offset -= 1
-                print(f"Vertex size: {self.vertex_offset}")
+                if self.vertex_offset > 0:
+                    self.vertex_offset -= 1
+                    print(f"Vertex size: {self.vertex_offset}")
+
+                # If there is no selection made, adjust the most recent box vertex offset
+                if len(self.selections) == 0 and self.boxes[-1]["vertex_offset"] > 0:
+                    self.boxes[-1]["vertex_offset"] -= 1
+
             elif k == ord("}") or k == ord("]"):
                 self.stroke_size += 1
                 print(f"Stroke size: {self.stroke_size}")
+
+                # If there is no selection made adjust most recent box stroke size
+                if len(self.selections) == 0:
+                    self.boxes[-1]["stroke_size"] += 1
+
             elif k == ord("{") or k == ord("["):
                 if self.stroke_size > 1:
                     self.stroke_size -= 1
+
+                # If there is no selection made, adjust the most recent box stroke size
+                if len(self.selections) == 0 and self.boxes[-1]["stroke_size"] > 0:
+                    self.boxes[-1]["stroke_size"] -= 1
             elif k == ord("s"):
                 print("saving")
                 self.save_outline()
