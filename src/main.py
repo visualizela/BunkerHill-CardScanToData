@@ -2,14 +2,17 @@ import cv2
 import json
 import numpy as np
 import os
+import win32api
 
-from constants import DATA_DIR, DEFAULT_VERTEX_OFFSET, DEFAULT_STROKE_SIZE, IMAGES_DIR, BOXED_PATH, SLICED_CARDS
+from constants import (DATA_DIR, DEFAULT_VERTEX_OFFSET, DEFAULT_STROKE_SIZE, IMAGES_DIR, BOXED_PATH, SLICED_CARDS,
+                       MOUSE_BOX_BUFFER_SIZE, MOUSE_BOX_SWITCH_TO_BOX_SPEED, MOUSE_BOX_SWITCH_TO_CURSOR_SPEED,
+                       MOUSE_BOX_FLICKER_REDUCTION, MOUSE_BOX_COLOR)
 
 
 class BunkerHillCard:
     path = None
     image = None
-    showing_marked = True
+    display_state = 0
     boxes = []
     last_undo = None
     curr_box = {}
@@ -17,6 +20,9 @@ class BunkerHillCard:
     vertex_offset = DEFAULT_VERTEX_OFFSET
     stroke_size = DEFAULT_STROKE_SIZE
     box_json = {}
+    mouse_locations = [[0, 0] for i in range(MOUSE_BOX_BUFFER_SIZE)]
+    frames_since_cursor_transition = 99
+    cursor_is_box = False
 
     def __init__(self, path: str) -> None:
         self.original = cv2.imread(str(path))
@@ -30,64 +36,151 @@ class BunkerHillCard:
 
     def initiate_box(self) -> None:
         self.curr_box = {
+            "name": None,
             "color": (np.random.randint(0, 256), np.random.randint(0, 256), np.random.randint(0, 256)),
             "top_left": (0, 0),
             "top_right": (0, 0),
             "bottom_left": (0, 0),
-            "bottom_right": (0, 0)
+            "bottom_right": (0, 0),
+            "vertex_offset": self.vertex_offset,
+            "stroke_size": self.stroke_size
         }
+
+    def _draw_box(self, box: dict, image: np.ndarray) -> np.ndarray:
+
+        vertex_offset = box["vertex_offset"]
+        ss = box["stroke_size"]
+        c = box["color"]
+        tl = box["top_left"]
+        tr = box["top_right"]
+        bl = box["bottom_left"]
+        br = box["bottom_right"]
+
+        # Draw lines around 4 points
+        cv2.line(image, (tl[0]+vertex_offset, tl[1]), (tr[0]-vertex_offset, tr[1]), c, ss)
+        cv2.line(image, (tl[0], tl[1]+vertex_offset), (bl[0], bl[1]-vertex_offset), c, ss)
+        cv2.line(image, (bl[0]+vertex_offset, bl[1]), (br[0]-vertex_offset, br[1]), c, ss)
+        cv2.line(image, (br[0], br[1]-vertex_offset), (tr[0], tr[1]+vertex_offset), c, ss)
+
+        # Draw search zones around 4 points
+        tlz_tl = (tl[0]-vertex_offset, tl[1]+vertex_offset)
+        tlz_br = (tl[0]+vertex_offset, tl[1]-vertex_offset)
+        cv2.rectangle(image, tlz_tl, tlz_br, c, ss)
+
+        trz_tl = (tr[0]-vertex_offset, tr[1]+vertex_offset)
+        trz_br = (tr[0]+vertex_offset, tr[1]-vertex_offset)
+        cv2.rectangle(image, trz_tl, trz_br, c, ss)
+
+        blz_tl = (bl[0]-vertex_offset, bl[1]+vertex_offset)
+        blz_br = (bl[0]+vertex_offset, bl[1]-vertex_offset)
+        cv2.rectangle(image, blz_tl, blz_br, c, ss)
+
+        brz_tl = (br[0]-vertex_offset, br[1]+vertex_offset)
+        brz_br = (br[0]+vertex_offset, br[1]-vertex_offset)
+        cv2.rectangle(image, brz_tl, brz_br, c, ss)
+
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        cv2.putText(image, box["name"], (tl[0]+20, tl[1]+30), font, 1, c, ss, cv2.LINE_AA)
+
+        return image
+
+    def _draw_selection(self, selection: list, image: np.ndarray) -> np.ndarray:
+        vertex_offset = self.vertex_offset
+        ss = self.stroke_size
+
+        box_draw_tl = (selection[0]-vertex_offset, selection[1]+vertex_offset)
+        box_draw_br = (selection[0]+vertex_offset, selection[1]-vertex_offset)
+        cv2.rectangle(image, box_draw_tl, box_draw_br, self.curr_box["color"], ss)
+        return image
+
+    def _draw_mouse_box(self, image: np.ndarray) -> np.ndarray:
+        """
+        Draw the bounding box around mouse
+
+        Args:
+            image (np.ndarray): image to draw the mouse on
+        """
+        win32api.SetCursor(None)
+        mouse = self.mouse_locations[-1]
+        box_draw_tl = (mouse[0]-self.vertex_offset, mouse[1]+self.vertex_offset)
+        box_draw_br = (mouse[0]+self.vertex_offset, mouse[1]-self.vertex_offset)
+        cv2.rectangle(image, box_draw_tl, box_draw_br, MOUSE_BOX_COLOR, self.stroke_size)
+        return image
 
     def draw_image(self) -> None:
         """
         Shows the census card image either with or without annotations depending on `showing_marked` flag. Redrawing
         the annotations each frame makes ensures the drawn image correctly reflects the state of the drawn boxes
         """
+        to_show = self.original.copy()
 
-        marked = self.original.copy()
-        if self.showing_marked:
-            vertex_offset = self.vertex_offset
-            ss = self.stroke_size
+        if self.cursor_is_box:
+            win32api.SetCursor(None)
+
+        # Drawing everything
+        if self.display_state % 3 == 0:
+
             # Draw completed boxes
-            for i, b in enumerate(self.boxes):
-                c = b["color"]
-                tl = b["top_left"]
-                tr = b["top_right"]
-                bl = b["bottom_left"]
-                br = b["bottom_right"]
+            for b in self.boxes:
+                to_show = self._draw_box(b, to_show)
 
-                # Draw lines around 4 points
-                cv2.line(marked, (tl[0]+vertex_offset, tl[1]), (tr[0]-vertex_offset, tr[1]), c, ss)
-                cv2.line(marked, (tl[0], tl[1]+vertex_offset), (bl[0], bl[1]-vertex_offset), c, ss)
-                cv2.line(marked, (bl[0]+vertex_offset, bl[1]), (br[0]-vertex_offset, br[1]), c, ss)
-                cv2.line(marked, (br[0], br[1]-vertex_offset), (tr[0], tr[1]+vertex_offset), c, ss)
+                # Draw current selection(s)
+                for s in self.selections:
+                    to_show = self._draw_selection(s, to_show)
 
-                # Draw search zones around 4 points
-                tlz_tl = (tl[0]-vertex_offset, tl[1]+vertex_offset)
-                tlz_br = (tl[0]+vertex_offset, tl[1]-vertex_offset)
-                cv2.rectangle(marked, tlz_tl, tlz_br, c, ss)
+        # Draw only current selection or most recent box
+        if self.display_state % 3 == 1:
 
-                trz_tl = (tr[0]-vertex_offset, tr[1]+vertex_offset)
-                trz_br = (tr[0]+vertex_offset, tr[1]-vertex_offset)
-                cv2.rectangle(marked, trz_tl, trz_br, c, ss)
+            # if user made a selection, draw that
+            if len(self.selections) > 0:
+                for s in self.selections:
+                    to_show = self._draw_selection(s, to_show)
+            # else draw most recent box
+            else:
+                to_show = self._draw_box(self.boxes[-1], to_show)
 
-                blz_tl = (bl[0]-vertex_offset, bl[1]+vertex_offset)
-                blz_br = (bl[0]+vertex_offset, bl[1]-vertex_offset)
-                cv2.rectangle(marked, blz_tl, blz_br, c, ss)
+        # Draw bounding around mouse
+        locations = self.mouse_locations
 
-                brz_tl = (br[0]-vertex_offset, br[1]+vertex_offset)
-                brz_br = (br[0]+vertex_offset, br[1]-vertex_offset)
-                cv2.rectangle(marked, brz_tl, brz_br, c, ss)
+        if locations is not None and len(locations) > 0:
+            # check if mouse has not moved fast recent frames
+            x_sum, y_sum = 0, 0
+            for loc in locations:
+                x_sum += abs(loc[0]-locations[-1][0])
+                y_sum += abs(loc[1]-locations[-1][1])
 
-                font = cv2.FONT_HERSHEY_SIMPLEX
-                cv2.putText(marked, f"box{i}", (tl[0]+20, tl[1]+30), font, 1, c, ss, cv2.LINE_AA)
+            x_avg = x_sum/len(locations)
+            y_avg = y_sum/len(locations)
+            mouse_speed = np.sqrt(pow(x_avg, 2) + pow(y_avg, 2))
 
-            # Draw current selection(s)
-            for s in self.selections:
-                box_draw_tl = (s[0]-vertex_offset, s[1]+vertex_offset)
-                box_draw_br = (s[0]+vertex_offset, s[1]-vertex_offset)
-                cv2.rectangle(marked, box_draw_tl, box_draw_br, self.curr_box["color"], ss)
+            # Check if the mouse is already a box
+            if self.cursor_is_box:
 
-        cv2.imshow('image', marked if self.showing_marked else self.original)
+                # check if we should switch to cursor
+                if (mouse_speed > MOUSE_BOX_SWITCH_TO_CURSOR_SPEED
+                   and self.frames_since_cursor_transition > MOUSE_BOX_FLICKER_REDUCTION):
+
+                    self.frames_since_cursor_transition = 0
+                    self.cursor_is_box = False
+
+                # keep cursor as a box
+                else:
+                    to_show = self._draw_mouse_box(to_show)
+
+            # mouse is windows cursor
+            else:
+                # check if we should switch to box
+                if (mouse_speed < MOUSE_BOX_SWITCH_TO_BOX_SPEED
+                   and self.frames_since_cursor_transition > MOUSE_BOX_FLICKER_REDUCTION):
+
+                    self.frames_since_cursor_transition = 0
+                    self.cursor_is_box = True
+
+                    to_show = self._draw_mouse_box(to_show)
+
+            self.frames_since_cursor_transition += 1
+
+        cv2.imshow('image', to_show)
 
     def click_event(self, event: int, x: int, y: int, flags, params) -> None:
         """
@@ -101,6 +194,13 @@ class BunkerHillCard:
             flags (Any):
             params (Any):
         """
+        if self.cursor_is_box:
+            win32api.SetCursor(None)
+        # Update list of recent mouse locations
+        self.mouse_locations.append([x, y])
+        self.mouse_locations.pop(0)
+
+        # User clicks screen
         if event == cv2.EVENT_LBUTTONDOWN:
 
             # save the selection and print it to terminal
@@ -124,6 +224,9 @@ class BunkerHillCard:
                 self.curr_box["bottom_left"] = s1 if s0[1] < s1[1] else s0
                 self.curr_box["top_right"] = s2 if s2[1] < s3[1] else s3
                 self.curr_box["bottom_right"] = s3 if s2[1] < self.selections[3][1] else s2
+                self.curr_box["name"] = f"box{len(self.boxes)}"
+                self.curr_box["vertex_offset"] = self.vertex_offset
+                self.curr_box["stroke_size"] = self.stroke_size
 
                 # Save the box and reset curr
                 self.boxes.append(self.curr_box)
@@ -174,8 +277,6 @@ class BunkerHillCard:
             print("You cannot save without selecting any boxes... Please make a selection")
             return
 
-        self.box_json["metadata"]["vertex_offset"] = self.vertex_offset
-        self.box_json["metadata"]["stroke_size"] = self.stroke_size
         self.box_json["metadata"]["total_boxes"] = len(self.boxes)
         self.box_json["boxes"] = self.boxes
 
@@ -222,15 +323,21 @@ class BunkerHillCard:
         # and calling the click_event() function
         cv2.namedWindow("image")
         cv2.setMouseCallback('image', self.click_event)
-
+        win32api.SetCursor(None)
         while True:
             self.draw_image()
+            # update mouse position
+            self.mouse_locations.append(self.mouse_locations[-1])
+            self.mouse_locations.pop(0)
+            if self.cursor_is_box:
+                win32api.SetCursor(None)
+
             k = cv2.waitKey(1)
             if k == 3014656:
                 cv2.destroyAllWindows()
             elif k == ord("d"):
-                self.showing_marked = not self.showing_marked
-                print("Displaying boxes" if self.showing_marked else "Hiding boxes")
+                self.display_state += 1
+                print(f"Display state: {self.display_state % 3}")
             elif k == ord("u"):
                 self.undo_last_action()
             elif k == ord("r"):
@@ -303,7 +410,7 @@ def initiate_directory() -> bool:
     """
 
     ready_to_run = True
-    # Make image directory if it doesnt exist
+    # Make image directory if it doesn't exist
     if not os.path.exists(IMAGES_DIR):
         print(f"Error: Image file not found at {IMAGES_DIR}")
         os.mkdir(IMAGES_DIR)
