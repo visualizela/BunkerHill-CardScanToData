@@ -13,6 +13,7 @@ SLICED_CARDS = Path(os.path.abspath(DATA_DIR / "sliced_cards"))
 DEFAULT_VERTEX_OFFSET = 7              # how large the selection area for vertex check should be
 DEFAULT_STROKE_SIZE = 2                # stroke size for shape borders
 DEFAULT_DISPLAY_STATE = 0              # 0 = show all boxes, 1 = show current only, 2 = hide all
+DEFAULT_BLANK_BOX_COLOR = (0, 0, 0)    # Default color for blank box (used in display mode 1)
 
 # Drawing bounding box around mouse
 MOUSE_BOX_BUFFER_SIZE = 45             # how many frames to track mouse movement

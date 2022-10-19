@@ -6,7 +6,7 @@ import win32api
 
 from constants import (DATA_DIR, DEFAULT_VERTEX_OFFSET, DEFAULT_STROKE_SIZE, IMAGES_DIR, BOXED_PATH, SLICED_CARDS,
                        MOUSE_BOX_BUFFER_SIZE, MOUSE_BOX_SWITCH_TO_BOX_SPEED, MOUSE_BOX_SWITCH_TO_CURSOR_SPEED,
-                       MOUSE_BOX_FLICKER_REDUCTION, MOUSE_BOX_COLOR)
+                       MOUSE_BOX_FLICKER_REDUCTION, MOUSE_BOX_COLOR, DEFAULT_BLANK_BOX_COLOR)
 
 
 class BunkerHillCard:
@@ -23,6 +23,7 @@ class BunkerHillCard:
     mouse_locations = [[0, 0] for i in range(MOUSE_BOX_BUFFER_SIZE)]
     frames_since_cursor_transition = 99
     cursor_is_box = False
+    last_button_q = False
 
     def __init__(self, path: str) -> None:
         """
@@ -38,23 +39,45 @@ class BunkerHillCard:
         metadata["name"] = os.path.basename(path).split(".")[0]
         self.box_json["metadata"] = metadata
 
-        self.initiate_box()
+        self._initiate_box()
 
-    def initiate_box(self) -> None:
+    def _initiate_box(self) -> None:
         """
         Initiate an empty box json
         """
 
         self.curr_box = {
             "name": None,
-            "color": (np.random.randint(0, 256), np.random.randint(0, 256), np.random.randint(0, 256)),
             "top_left_bb": (0, 0),
             "top_right_bb": (0, 0),
             "bottom_left_bb": (0, 0),
             "bottom_right_bb": (0, 0),
+            "top_left_vertex": (0, 0),
+            "top_right_vertex": (0, 0),
+            "bottom_left_vertex": (0, 0),
+            "bottom_right_vertex": (0, 0),
+            "stroke_size": self.stroke_size,
             "vertex_offset": self.vertex_offset,
-            "stroke_size": self.stroke_size
+            "color": (np.random.randint(0, 256), np.random.randint(0, 256), np.random.randint(0, 256))
         }
+
+    def _draw_blank_over_box(self, box: dict, image: np.ndarray) -> np.ndarray:
+        """
+        draw a black box over previous selections
+
+        Args:
+            box (dict): box to blank out
+            image (np.ndarray): image to draw blank on
+
+        Returns:
+            np.ndarray: image with blank box drawn
+        """
+        margin_size = box["vertex_offset"]
+        tl = box["top_left_bb"]
+        br = box["bottom_right_bb"]
+
+        cv2.rectangle(image, (tl[0]+margin_size, tl[1]+margin_size), (br[0]-margin_size, br[1]-margin_size), DEFAULT_BLANK_BOX_COLOR, -1)
+        return image
 
     def _draw_box(self, box: dict, image: np.ndarray) -> np.ndarray:
         """
@@ -137,7 +160,7 @@ class BunkerHillCard:
         cv2.rectangle(image, box_draw_tl, box_draw_br, MOUSE_BOX_COLOR, self.stroke_size)
         return image
 
-    def draw_image(self) -> None:
+    def _draw_image(self) -> None:
         """
         Shows the census card image either with or without annotations depending on the `display_state` flag. Redrawing
         the annotations each frame makes ensures the drawn image correctly reflects the state of the drawn boxes
@@ -165,9 +188,18 @@ class BunkerHillCard:
             if len(self.selections) > 0:
                 for s in self.selections:
                     to_show = self._draw_selection(s, to_show)
+
+                for b in self.boxes:
+                    to_show = self._draw_blank_over_box(b, to_show)
+
             # else draw most recent box
             else:
-                to_show = self._draw_box(self.boxes[-1], to_show)
+                if len(self.boxes) > 0:
+                    to_show = self._draw_box(self.boxes[-1], to_show)
+
+                    for i in range(len(self.boxes) - 1):
+                        b = self.boxes[i]
+                        to_show = self._draw_blank_over_box(b, to_show)
 
         # Draw bounding around mouse
         locations = self.mouse_locations
@@ -212,7 +244,7 @@ class BunkerHillCard:
 
         cv2.imshow('image', to_show)
 
-    def click_event(self, event: int, x: int, y: int, flags, params) -> None:
+    def _click_event(self, event: int, x: int, y: int, flags, params) -> None:
         """
         Draws a box around the selection when the user clicks the screen. After two clicks a box is added around top
         left and bottom right of of click.
@@ -224,6 +256,10 @@ class BunkerHillCard:
             flags (Any):
             params (Any):
         """
+
+        # clicking resets quit flag
+        self.last_button_q = False
+
         if self.cursor_is_box:
             win32api.SetCursor(None)
         # Update list of recent mouse locations
@@ -260,10 +296,10 @@ class BunkerHillCard:
 
                 # Save the box and reset curr
                 self.boxes.append(self.curr_box)
-                self.initiate_box()
+                self._initiate_box()
                 self.selections = []
 
-    def redo_last_undo(self) -> None:
+    def _redo_last_undo(self) -> None:
         """
         Undoes the last redo action
         """
@@ -281,7 +317,7 @@ class BunkerHillCard:
         else:
             print("Nothing to undo...")
 
-    def undo_last_action(self) -> None:
+    def _undo_last_action(self) -> None:
         """
         Removes the most recent action from its respective list. If the last action was defining a box vertex it will
         reset the box selection list. If the most recent action was creating a box it will pop the box off the top of
@@ -299,7 +335,7 @@ class BunkerHillCard:
             else:
                 print("Nothing to undo...")
 
-    def save_outline(self):
+    def _save_outline(self):
         """
         Save the selections json to be analyzed later
         """
@@ -337,7 +373,7 @@ class BunkerHillCard:
         outp += "===============================================================================\n"
         print(outp)
 
-    def define_box_edges(self) -> None:
+    def _define_box_edges(self) -> None:
         """
         Takes in the path to a census card and allows the user to select the edges of the census card to split the card
         into different sub-sections for individual analysis. When run the user will need to select a point to draw
@@ -352,10 +388,10 @@ class BunkerHillCard:
         # setting mouse handler for the image
         # and calling the click_event() function
         cv2.namedWindow("image")
-        cv2.setMouseCallback('image', self.click_event)
+        cv2.setMouseCallback('image', self._click_event)
         win32api.SetCursor(None)
         while True:
-            self.draw_image()
+            self._draw_image()
             # update mouse position
             self.mouse_locations.append(self.mouse_locations[-1])
             self.mouse_locations.pop(0)
@@ -364,17 +400,28 @@ class BunkerHillCard:
 
             k = cv2.waitKey(1)
             if k == 3014656:
-                cv2.destroyAllWindows()
+                if self.last_button_q:
+                    print("quitting...")
+                    cv2.destroyAllWindows()
+                    break
+                else:
+                    print("Quit? Hit q again to quit program. Unsaved progress will be lost.")
+                    self.last_button_q = True
             elif k == ord("d"):
+                self.last_button_q = False
                 self.display_state += 1
                 print(f"Display state: {self.display_state % 3}")
             elif k == ord("u"):
-                self.undo_last_action()
+                self.last_button_q = False
+                self._undo_last_action()
             elif k == ord("r"):
-                self.redo_last_undo()
+                self.last_button_q = False
+                self._redo_last_undo()
             elif k == ord("h"):
+                self.last_button_q = False
                 self.help()
             elif k == ord("+") or k == ord("="):
+                self.last_button_q = False
                 self.vertex_offset += 1
                 print(f"Vertex size: {self.vertex_offset}")
                 # If there is no selection made adjust most recent box vertex offset
@@ -382,6 +429,7 @@ class BunkerHillCard:
                     self.boxes[-1]["vertex_offset"] += 1
 
             elif k == ord("-") or k == ord("_"):
+                self.last_button_q = False
                 if self.vertex_offset > 0:
                     self.vertex_offset -= 1
                     print(f"Vertex size: {self.vertex_offset}")
@@ -391,6 +439,7 @@ class BunkerHillCard:
                     self.boxes[-1]["vertex_offset"] -= 1
 
             elif k == ord("}") or k == ord("]"):
+                self.last_button_q = False
                 self.stroke_size += 1
                 print(f"Stroke size: {self.stroke_size}")
 
@@ -399,6 +448,7 @@ class BunkerHillCard:
                     self.boxes[-1]["stroke_size"] += 1
 
             elif k == ord("{") or k == ord("["):
+                self.last_button_q = False
                 if self.stroke_size > 1:
                     self.stroke_size -= 1
 
@@ -406,11 +456,17 @@ class BunkerHillCard:
                 if len(self.selections) == 0 and self.boxes[-1]["stroke_size"] > 0:
                     self.boxes[-1]["stroke_size"] -= 1
             elif k == ord("s"):
+                self.last_button_q = False
                 print("saving")
-                self.save_outline()
+                self._save_outline()
             elif k == ord("q"):
-                cv2.destroyAllWindows()
-                break
+                if self.last_button_q:
+                    print("Quitting...")
+                    cv2.destroyAllWindows()
+                    break
+                else:
+                    self.last_button_q = True
+                    print("Quit? Hit q again to quit program. Unsaved progress will be lost.")
 
 
 def split_census_image(path: str) -> None:
@@ -445,7 +501,7 @@ def process_cards(files: list[str]):
         for f in files:
             bhc = BunkerHillCard(IMAGES_DIR / f)
             bhc.help()
-            bhc.define_box_edges()
+            bhc._define_box_edges()
     else:
         print(f"Error: no images found at {IMAGES_DIR}")
 
