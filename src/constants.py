@@ -21,3 +21,6 @@ MOUSE_BOX_SWITCH_TO_CURSOR_SPEED = 25  # How fast the mouse can move before swit
 MOUSE_BOX_SWITCH_TO_BOX_SPEED = 2      # How fast the mouse can move before switching from windows cursor -> box
 MOUSE_BOX_FLICKER_REDUCTION = 35       # Number of frames to wait before switching from cursor to bounding box
 MOUSE_BOX_COLOR = (0, 0, 255)          # (blue, green, red)
+
+# Vertex selection
+VERTEX_WEIGHT_ON_CENTER = 0.15         # Percent weighting towards finding vertexes close to the center of bounding box

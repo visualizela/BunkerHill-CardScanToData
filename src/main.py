@@ -6,17 +6,18 @@ import win32api
 
 from constants import (DATA_DIR, DEFAULT_VERTEX_OFFSET, DEFAULT_STROKE_SIZE, IMAGES_DIR, BOXED_PATH, SLICED_CARDS,
                        MOUSE_BOX_BUFFER_SIZE, MOUSE_BOX_SWITCH_TO_BOX_SPEED, MOUSE_BOX_SWITCH_TO_CURSOR_SPEED,
-                       MOUSE_BOX_FLICKER_REDUCTION, MOUSE_BOX_COLOR, DEFAULT_BLANK_BOX_COLOR)
+                       MOUSE_BOX_FLICKER_REDUCTION, MOUSE_BOX_COLOR, DEFAULT_BLANK_BOX_COLOR, VERTEX_WEIGHT_ON_CENTER)
 
 
 class BunkerHillCard:
     path = None
-    image = None
+    original = None
     display_state = 0
     boxes = []
     last_undo = None
     curr_box = {}
     selections = []
+    selection_vertexes = []
     vertex_offset = DEFAULT_VERTEX_OFFSET
     stroke_size = DEFAULT_STROKE_SIZE
     box_json = {}
@@ -76,7 +77,8 @@ class BunkerHillCard:
         tl = box["top_left_bb"]
         br = box["bottom_right_bb"]
 
-        cv2.rectangle(image, (tl[0]+margin_size, tl[1]+margin_size), (br[0]-margin_size, br[1]-margin_size), DEFAULT_BLANK_BOX_COLOR, -1)
+        cv2.rectangle(image, (tl[0]+margin_size, tl[1]+margin_size), (br[0]-margin_size, br[1]-margin_size),
+                      DEFAULT_BLANK_BOX_COLOR, -1)
         return image
 
     def _draw_box(self, box: dict, image: np.ndarray) -> np.ndarray:
@@ -94,36 +96,47 @@ class BunkerHillCard:
         vertex_offset = box["vertex_offset"]
         ss = box["stroke_size"]
         c = box["color"]
-        tl = box["top_left_bb"]
-        tr = box["top_right_bb"]
-        bl = box["bottom_left_bb"]
-        br = box["bottom_right_bb"]
+        tlbb = box["top_left_bb"]
+        trbb = box["top_right_bb"]
+        blbb = box["bottom_left_bb"]
+        brbb = box["bottom_right_bb"]
+
+        tlv = box["top_left_vertex"]
+        trv = box["top_right_vertex"]
+        blv = box["bottom_left_vertex"]
+        brv = box["bottom_right_vertex"]
+
+        # Draw vertex at 4 detected points
+        cv2.circle(image, (tlv[0], tlv[1]), radius=3, color=c, thickness=2)
+        cv2.circle(image, (trv[0], trv[1]), radius=3, color=c, thickness=2)
+        cv2.circle(image, (blv[0], blv[1]), radius=3, color=c, thickness=2)
+        cv2.circle(image, (brv[0], brv[1]), radius=3, color=c, thickness=2)
 
         # Draw lines around 4 points
-        cv2.line(image, (tl[0]+vertex_offset, tl[1]), (tr[0]-vertex_offset, tr[1]), c, ss)
-        cv2.line(image, (tl[0], tl[1]+vertex_offset), (bl[0], bl[1]-vertex_offset), c, ss)
-        cv2.line(image, (bl[0]+vertex_offset, bl[1]), (br[0]-vertex_offset, br[1]), c, ss)
-        cv2.line(image, (br[0], br[1]-vertex_offset), (tr[0], tr[1]+vertex_offset), c, ss)
+        cv2.line(image, (tlbb[0]+vertex_offset, tlbb[1]), (trbb[0]-vertex_offset, trbb[1]), c, ss)
+        cv2.line(image, (tlbb[0], tlbb[1]+vertex_offset), (blbb[0], blbb[1]-vertex_offset), c, ss)
+        cv2.line(image, (blbb[0]+vertex_offset, blbb[1]), (brbb[0]-vertex_offset, brbb[1]), c, ss)
+        cv2.line(image, (brbb[0], brbb[1]-vertex_offset), (trbb[0], trbb[1]+vertex_offset), c, ss)
 
         # Draw search zones around 4 points
-        tlz_tl = (tl[0]-vertex_offset, tl[1]+vertex_offset)
-        tlz_br = (tl[0]+vertex_offset, tl[1]-vertex_offset)
+        tlz_tl = (tlbb[0]-vertex_offset, tlbb[1]+vertex_offset)
+        tlz_br = (tlbb[0]+vertex_offset, tlbb[1]-vertex_offset)
         cv2.rectangle(image, tlz_tl, tlz_br, c, ss)
 
-        trz_tl = (tr[0]-vertex_offset, tr[1]+vertex_offset)
-        trz_br = (tr[0]+vertex_offset, tr[1]-vertex_offset)
+        trz_tl = (trbb[0]-vertex_offset, trbb[1]+vertex_offset)
+        trz_br = (trbb[0]+vertex_offset, trbb[1]-vertex_offset)
         cv2.rectangle(image, trz_tl, trz_br, c, ss)
 
-        blz_tl = (bl[0]-vertex_offset, bl[1]+vertex_offset)
-        blz_br = (bl[0]+vertex_offset, bl[1]-vertex_offset)
+        blz_tl = (blbb[0]-vertex_offset, blbb[1]+vertex_offset)
+        blz_br = (blbb[0]+vertex_offset, blbb[1]-vertex_offset)
         cv2.rectangle(image, blz_tl, blz_br, c, ss)
 
-        brz_tl = (br[0]-vertex_offset, br[1]+vertex_offset)
-        brz_br = (br[0]+vertex_offset, br[1]-vertex_offset)
+        brz_tl = (brbb[0]-vertex_offset, brbb[1]+vertex_offset)
+        brz_br = (brbb[0]+vertex_offset, brbb[1]-vertex_offset)
         cv2.rectangle(image, brz_tl, brz_br, c, ss)
 
         font = cv2.FONT_HERSHEY_SIMPLEX
-        cv2.putText(image, box["name"], (tl[0]+20, tl[1]+30), font, 1, c, ss, cv2.LINE_AA)
+        cv2.putText(image, box["name"], (tlbb[0]+20, tlbb[1]+30), font, 1, c, ss, cv2.LINE_AA)
 
         return image
 
@@ -144,6 +157,11 @@ class BunkerHillCard:
         box_draw_tl = (selection[0]-vertex_offset, selection[1]+vertex_offset)
         box_draw_br = (selection[0]+vertex_offset, selection[1]-vertex_offset)
         cv2.rectangle(image, box_draw_tl, box_draw_br, self.curr_box["color"], ss)
+
+        # draw vertex
+        selection_vertex = self._find_vertex(selection, self.vertex_offset)
+        cv2.circle(image, (selection_vertex[0], selection_vertex[1]), radius=3, color=self.curr_box["color"], thickness=2)
+
         return image
 
     def _draw_mouse_box(self, image: np.ndarray) -> np.ndarray:
@@ -158,6 +176,10 @@ class BunkerHillCard:
         box_draw_tl = (mouse[0]-self.vertex_offset, mouse[1]+self.vertex_offset)
         box_draw_br = (mouse[0]+self.vertex_offset, mouse[1]-self.vertex_offset)
         cv2.rectangle(image, box_draw_tl, box_draw_br, MOUSE_BOX_COLOR, self.stroke_size)
+
+        # draw vertex
+        detected_vertex = self._find_vertex((mouse[0], mouse[1]), self.vertex_offset)
+        cv2.circle(image, (detected_vertex[0], detected_vertex[1]), radius=3, color=(0, 0, 255), thickness=2)
         return image
 
     def _draw_image(self) -> None:
@@ -257,9 +279,6 @@ class BunkerHillCard:
             params (Any):
         """
 
-        # clicking resets quit flag
-        self.last_button_q = False
-
         if self.cursor_is_box:
             win32api.SetCursor(None)
         # Update list of recent mouse locations
@@ -269,9 +288,15 @@ class BunkerHillCard:
         # User clicks screen
         if event == cv2.EVENT_LBUTTONDOWN:
 
+            # clicking resets quit flag
+            self.last_button_q = False
+
             # save the selection and print it to terminal
             self.selections.append((x, y))
             print(f"box{len(self.boxes)} selection: ({x}, {y})")
+
+            vertex = self._find_vertex((x, y), self.vertex_offset)
+            self.selection_vertexes.append(vertex)
 
             # If the user has selected a box
             if len(self.selections) == 2:
@@ -286,18 +311,87 @@ class BunkerHillCard:
                 s1 = self.selections[1]
                 s2 = self.selections[2]
                 s3 = self.selections[3]
-                self.curr_box["top_left_bb"] = s0 if s0[1] < s1[1] else s1
-                self.curr_box["bottom_left_bb"] = s1 if s0[1] < s1[1] else s0
-                self.curr_box["top_right_bb"] = s2 if s2[1] < s3[1] else s3
-                self.curr_box["bottom_right_bb"] = s3 if s2[1] < self.selections[3][1] else s2
+
+                tlbb = s0 if s0[1] < s1[1] else s1
+                blbb = s1 if s0[1] < s1[1] else s0
+                trbb = s2 if s2[1] < s3[1] else s3
+                brbb = s3 if s2[1] < s3[1] else s2
+
+                self.curr_box["top_left_bb"] = tlbb
+                self.curr_box["bottom_left_bb"] = blbb
+                self.curr_box["top_right_bb"] = trbb
+                self.curr_box["bottom_right_bb"] = brbb
+
+                self.curr_box["top_left_vertex"] = self._find_vertex(tlbb, self.vertex_offset)
+                self.curr_box["top_right_vertex"] = self._find_vertex(trbb, self.vertex_offset)
+                self.curr_box["bottom_left_vertex"] = self._find_vertex(blbb, self.vertex_offset)
+                self.curr_box["bottom_right_vertex"] = self._find_vertex(brbb, self.vertex_offset)
+
                 self.curr_box["name"] = f"box{len(self.boxes)}"
                 self.curr_box["vertex_offset"] = self.vertex_offset
                 self.curr_box["stroke_size"] = self.stroke_size
+                print(self.curr_box)
 
                 # Save the box and reset curr
                 self.boxes.append(self.curr_box)
                 self._initiate_box()
                 self.selections = []
+                self.selection_vertexes = []
+
+    def _find_vertex(self, bounding_box: tuple, vertex_offset: int) -> tuple:
+        top_left = (bounding_box[0] - vertex_offset, bounding_box[1] - vertex_offset)
+        bottom_right = (bounding_box[0] + vertex_offset, bounding_box[1] + vertex_offset)
+        tx = top_left[0] if top_left[0] >= 0 else 0
+        ty = top_left[1] if top_left[1] >= 0 else 0
+        bx = bottom_right[0] if bottom_right[0] < self.original.shape[1] else self.original.shape[1] - 1
+        by = bottom_right[1] if bottom_right[1] < self.original.shape[0] else self.original.shape[0] - 1
+
+        cropped = self.original[ty:by, tx:bx]
+        width = cropped.shape[1]
+        height = cropped.shape[0]
+
+        processed = cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY)
+        a, processed = cv2.threshold(processed, 127, 255, cv2.THRESH_BINARY)
+
+        col_score = [0 for i in range(width)]
+        row_score = [0 for i in range(height)]
+
+        # Sum lines in rows and cols
+        for col in range(width):
+            for row in range(height):
+                row_score[row] += 1 if processed[row][col] == 0 else 0
+
+        for row in range(height):
+            for col in range(width):
+                col_score[col] += 1 if processed[row][col] == 0 else 0
+
+        weighted_col_score = self._calculate_proximity_score(col_score)
+        weighted_row_score = self._calculate_proximity_score(row_score)
+
+        best_y = weighted_row_score.index(max(weighted_row_score))
+        best_x = weighted_col_score.index(max(weighted_col_score))
+
+        return (best_x+bounding_box[0]-vertex_offset, best_y+bounding_box[1]-vertex_offset)
+
+    def _calculate_proximity_score(self, unweighted_list: list) -> list:
+        weighted_score = [0 for i in range(len(unweighted_list))]
+
+        # Weight so lines next to lines get much better scores
+        for i in range(len(unweighted_list)):
+            proximity_score = 0
+            for j in range(len(unweighted_list)):
+                if j != 0:
+                    distance = abs(i-j)
+                    proximity_score += unweighted_list[i]*1/pow(2, distance)
+            weighted_score[i] = round(unweighted_list[i] * proximity_score, 2)
+
+        # weight so lines closer to the center have 10% higher points -> 0% higher points at edge
+        center_selection = len(weighted_score)/2
+        for i in range(len(weighted_score)):
+            center_weight = 1.0 * -abs((i-center_selection)/center_selection) + 1
+            weighted_score[i] = round(weighted_score[i] + center_weight * VERTEX_WEIGHT_ON_CENTER, 2)
+
+        return weighted_score
 
     def _redo_last_undo(self) -> None:
         """
@@ -425,18 +519,32 @@ class BunkerHillCard:
                 self.vertex_offset += 1
                 print(f"Vertex size: {self.vertex_offset}")
                 # If there is no selection made adjust most recent box vertex offset
-                if len(self.selections) == 0:
-                    self.boxes[-1]["vertex_offset"] += 1
+                if len(self.selections) == 0 and len(self.boxes) > 0:
+                    b = self.boxes[-1]
+                    b["vertex_offset"] += 1
+
+                    # recalculate best vertex location
+                    b["top_left_vertex"] = self._find_vertex(b["top_left_bb"], b["vertex_offset"])
+                    b["top_right_vertex"] = self._find_vertex(b["top_right_bb"], b["vertex_offset"])
+                    b["bottom_left_vertex"] = self._find_vertex(b["bottom_left_bb"], b["vertex_offset"])
+                    b["bottom_right_vertex"] = self._find_vertex(b["bottom_right_bb"], b["vertex_offset"])
 
             elif k == ord("-") or k == ord("_"):
                 self.last_button_q = False
-                if self.vertex_offset > 0:
+                if self.vertex_offset > 1:
                     self.vertex_offset -= 1
                     print(f"Vertex size: {self.vertex_offset}")
 
                 # If there is no selection made, adjust the most recent box vertex offset
-                if len(self.selections) == 0 and self.boxes[-1]["vertex_offset"] > 0:
-                    self.boxes[-1]["vertex_offset"] -= 1
+                if len(self.selections) == 0 and len(self.boxes) > 0 and self.boxes[-1]["vertex_offset"] > 1:
+                    b = self.boxes[-1]
+                    b["vertex_offset"] -= 1
+
+                    # recalculate best vertex location
+                    b["top_left_vertex"] = self._find_vertex(b["top_left_bb"], b["vertex_offset"])
+                    b["top_right_vertex"] = self._find_vertex(b["top_right_bb"], b["vertex_offset"])
+                    b["bottom_left_vertex"] = self._find_vertex(b["bottom_left_bb"], b["vertex_offset"])
+                    b["bottom_right_vertex"] = self._find_vertex(b["bottom_right_bb"], b["vertex_offset"])
 
             elif k == ord("}") or k == ord("]"):
                 self.last_button_q = False
@@ -444,7 +552,7 @@ class BunkerHillCard:
                 print(f"Stroke size: {self.stroke_size}")
 
                 # If there is no selection made adjust most recent box stroke size
-                if len(self.selections) == 0:
+                if len(self.selections) == 0 and len(self.boxes) > 0:
                     self.boxes[-1]["stroke_size"] += 1
 
             elif k == ord("{") or k == ord("["):
@@ -453,7 +561,7 @@ class BunkerHillCard:
                     self.stroke_size -= 1
 
                 # If there is no selection made, adjust the most recent box stroke size
-                if len(self.selections) == 0 and self.boxes[-1]["stroke_size"] > 0:
+                if len(self.selections) == 0 and len(self.boxes) > 0 and self.boxes[-1]["stroke_size"] > 1:
                     self.boxes[-1]["stroke_size"] -= 1
             elif k == ord("s"):
                 self.last_button_q = False
