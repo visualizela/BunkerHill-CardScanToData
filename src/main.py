@@ -6,12 +6,15 @@ import win32api
 
 from constants import (DATA_DIR, DEFAULT_VERTEX_OFFSET, DEFAULT_STROKE_SIZE, IMAGES_DIR, BOXED_PATH, SLICED_CARDS,
                        MOUSE_BOX_BUFFER_SIZE, MOUSE_BOX_SWITCH_TO_BOX_SPEED, MOUSE_BOX_SWITCH_TO_CURSOR_SPEED,
-                       MOUSE_BOX_FLICKER_REDUCTION, MOUSE_BOX_COLOR, DEFAULT_BLANK_BOX_COLOR, VERTEX_WEIGHT_ON_CENTER)
+                       MOUSE_BOX_FLICKER_REDUCTION, MOUSE_BOX_COLOR, DEFAULT_BLANK_BOX_COLOR, VERTEX_WEIGHT_ON_CENTER,
+                       VERTEX_SIZE)
 
 
 class BunkerHillCard:
-    path = None
-    original = None
+    image_names = []
+    image_paths = []
+    current_image = 0
+    unmodified_current = None
     display_state = 0
     boxes = []
     last_undo = None
@@ -31,16 +34,28 @@ class BunkerHillCard:
         Initiate class variables
 
         Args:
-            path (str): path to card
+            path (str): path to image directory
         """
-        self.original = cv2.imread(str(path))
-        self.path = path
-        metadata = {}
-        metadata["path"] = os.path.abspath(path)
-        metadata["name"] = os.path.basename(path).split(".")[0]
-        self.box_json["metadata"] = metadata
+        self.image_names = os.listdir(path)
+        if len(self.image_names) > 0:
+            for n in self.image_names:
+                self.image_paths.append(os.path.join(path, n))
 
-        self._initiate_box()
+            # Setup initial image to display
+            self.image_dir = path
+            self.unmodified_current = cv2.imread(self.image_paths[0])
+
+            # Setup metadata
+            metadata = {}
+            metadata["path"] = os.path.abspath(path)
+            self.box_json["metadata"] = metadata
+
+            print(self.box_json)
+
+            # initiate empty selection box
+            self._initiate_box()
+        else:
+            raise RuntimeError(f"Error: no images found at {IMAGES_DIR}")
 
     def _initiate_box(self) -> None:
         """
@@ -53,14 +68,19 @@ class BunkerHillCard:
             "top_right_bb": (0, 0),
             "bottom_left_bb": (0, 0),
             "bottom_right_bb": (0, 0),
-            "top_left_vertex": (0, 0),
-            "top_right_vertex": (0, 0),
-            "bottom_left_vertex": (0, 0),
-            "bottom_right_vertex": (0, 0),
             "stroke_size": self.stroke_size,
             "vertex_offset": self.vertex_offset,
             "color": (np.random.randint(0, 256), np.random.randint(0, 256), np.random.randint(0, 256))
         }
+
+        # Initiate an empty vertex for each image in the image path dir
+        for f in self.image_names:
+            self.curr_box[f] = {
+                "top_left_vertex": (0, 0),
+                "top_right_vertex": (0, 0),
+                "bottom_left_vertex": (0, 0),
+                "bottom_right_vertex": (0, 0),
+            }
 
     def _draw_blank_over_box(self, box: dict, image: np.ndarray) -> np.ndarray:
         """
@@ -101,10 +121,11 @@ class BunkerHillCard:
         blbb = box["bottom_left_bb"]
         brbb = box["bottom_right_bb"]
 
-        tlv = box["top_left_vertex"]
-        trv = box["top_right_vertex"]
-        blv = box["bottom_left_vertex"]
-        brv = box["bottom_right_vertex"]
+        curr_image = box[self.image_names[self.current_image]]
+        tlv = curr_image["top_left_vertex"]
+        trv = curr_image["top_right_vertex"]
+        blv = curr_image["bottom_left_vertex"]
+        brv = curr_image["bottom_right_vertex"]
 
         # Draw vertex at 4 detected points
         cv2.circle(image, (tlv[0], tlv[1]), radius=3, color=c, thickness=2)
@@ -146,10 +167,10 @@ class BunkerHillCard:
 
         Args:
             selection (list): list of current selections (points the user has clicked)
-            image (np.ndarray): image to draw the selection on
+            image (np.ndarray): image to draw the selection on.
 
         Returns:
-            np.ndarray: Image with the selection drawn on it
+            np.ndarray: Image with the selection drawn on it.
         """
         vertex_offset = self.vertex_offset
         ss = self.stroke_size
@@ -160,7 +181,11 @@ class BunkerHillCard:
 
         # draw vertex
         selection_vertex = self._find_vertex(selection, self.vertex_offset)
-        cv2.circle(image, (selection_vertex[0], selection_vertex[1]), radius=3, color=self.curr_box["color"], thickness=2)
+        cv2.circle(image,
+                   (selection_vertex[0], selection_vertex[1]),
+                   radius=VERTEX_SIZE,
+                   color=self.curr_box["color"],
+                   thickness=2)
 
         return image
 
@@ -187,7 +212,7 @@ class BunkerHillCard:
         Shows the census card image either with or without annotations depending on the `display_state` flag. Redrawing
         the annotations each frame makes ensures the drawn image correctly reflects the state of the drawn boxes
         """
-        to_show = self.original.copy()
+        to_show = self.unmodified_current.copy()
 
         if self.cursor_is_box:
             win32api.SetCursor(None)
@@ -266,6 +291,59 @@ class BunkerHillCard:
 
         cv2.imshow('image', to_show)
 
+    def _create_selection(self, x: int, y: int) -> None:
+        """
+        Create selection around the current mouse location
+
+        Args:
+            x (int): x position of mouse (in pixels)
+            y (int): y position of mouse (in pixels)
+        """
+
+        self.selections.append((x, y))
+        print(f"box{len(self.boxes)} selection: ({x}, {y})")
+
+        vertex = self._find_vertex((x, y), self.vertex_offset)
+        self.selection_vertexes.append(vertex)
+
+    def _create_box(self) -> None:
+        """
+        Create a box using the current selections. Resets the `curr_box` and `selections` lists after box is created
+        """
+        # append other two implicit corners
+        self.selections.append((self.selections[0][0], self.selections[1][1]))
+        self.selections.append((self.selections[1][0], self.selections[0][1]))
+
+        # Find and sort the edges of the box
+        self.selections.sort(key=lambda i: i[0])
+        s0 = self.selections[0]
+        s1 = self.selections[1]
+        s2 = self.selections[2]
+        s3 = self.selections[3]
+
+        tlbb = s0 if s0[1] < s1[1] else s1
+        blbb = s1 if s0[1] < s1[1] else s0
+        trbb = s2 if s2[1] < s3[1] else s3
+        brbb = s3 if s2[1] < s3[1] else s2
+
+        self.curr_box["top_left_bb"] = tlbb
+        self.curr_box["bottom_left_bb"] = blbb
+        self.curr_box["top_right_bb"] = trbb
+        self.curr_box["bottom_right_bb"] = brbb
+
+        # Update vertex selection for all images
+        self._update_all_vertex(self.curr_box)
+
+        self.curr_box["name"] = f"box{len(self.boxes)}"
+        self.curr_box["vertex_offset"] = self.vertex_offset
+        self.curr_box["stroke_size"] = self.stroke_size
+
+        # Save the box and reset curr
+        self.boxes.append(self.curr_box)
+        self._initiate_box()
+        self.selections = []
+        self.selection_vertexes = []
+
     def _click_event(self, event: int, x: int, y: int, flags, params) -> None:
         """
         Draws a box around the selection when the user clicks the screen. After two clicks a box is added around top
@@ -291,62 +369,38 @@ class BunkerHillCard:
             # clicking resets quit flag
             self.last_button_q = False
 
-            # save the selection and print it to terminal
-            self.selections.append((x, y))
-            print(f"box{len(self.boxes)} selection: ({x}, {y})")
-
-            vertex = self._find_vertex((x, y), self.vertex_offset)
-            self.selection_vertexes.append(vertex)
+            # save the selection
+            self._create_selection(x, y)
 
             # If the user has selected a box
             if len(self.selections) == 2:
+                self._create_box()
 
-                # append other two implicit corners
-                self.selections.append((self.selections[0][0], self.selections[1][1]))
-                self.selections.append((self.selections[1][0], self.selections[0][1]))
+    def _update_all_vertex(self, box: dict):
+        """
+        Updates the location of the vertex position for each image using the boxes bounding box
+        """
+        for index, name in enumerate(self.image_names):
+            c = box[name]
+            c_image = cv2.imread(self.image_paths[index])
+            # recalculate best vertex location
+            c["top_left_vertex"] = self._find_vertex(box["top_left_bb"], box["vertex_offset"], image=c_image)
+            print(c["top_left_vertex"])
+            c["top_right_vertex"] = self._find_vertex(box["top_right_bb"], box["vertex_offset"], image=c_image)
+            c["bottom_left_vertex"] = self._find_vertex(box["bottom_left_bb"], box["vertex_offset"], image=c_image)
+            c["bottom_right_vertex"] = self._find_vertex(box["bottom_right_bb"], box["vertex_offset"], image=c_image)
 
-                # Find and sort the edges of the box
-                self.selections.sort(key=lambda i: i[0])
-                s0 = self.selections[0]
-                s1 = self.selections[1]
-                s2 = self.selections[2]
-                s3 = self.selections[3]
-
-                tlbb = s0 if s0[1] < s1[1] else s1
-                blbb = s1 if s0[1] < s1[1] else s0
-                trbb = s2 if s2[1] < s3[1] else s3
-                brbb = s3 if s2[1] < s3[1] else s2
-
-                self.curr_box["top_left_bb"] = tlbb
-                self.curr_box["bottom_left_bb"] = blbb
-                self.curr_box["top_right_bb"] = trbb
-                self.curr_box["bottom_right_bb"] = brbb
-
-                self.curr_box["top_left_vertex"] = self._find_vertex(tlbb, self.vertex_offset)
-                self.curr_box["top_right_vertex"] = self._find_vertex(trbb, self.vertex_offset)
-                self.curr_box["bottom_left_vertex"] = self._find_vertex(blbb, self.vertex_offset)
-                self.curr_box["bottom_right_vertex"] = self._find_vertex(brbb, self.vertex_offset)
-
-                self.curr_box["name"] = f"box{len(self.boxes)}"
-                self.curr_box["vertex_offset"] = self.vertex_offset
-                self.curr_box["stroke_size"] = self.stroke_size
-                print(self.curr_box)
-
-                # Save the box and reset curr
-                self.boxes.append(self.curr_box)
-                self._initiate_box()
-                self.selections = []
-                self.selection_vertexes = []
-
-    def _find_vertex(self, bounding_box: tuple, vertex_offset: int) -> tuple:
+    def _find_vertex(self, bounding_box: tuple, vertex_offset: int, image=None) -> tuple:
+        if image is None:
+            image = self.unmodified_current
         top_left = (bounding_box[0] - vertex_offset, bounding_box[1] - vertex_offset)
         bottom_right = (bounding_box[0] + vertex_offset, bounding_box[1] + vertex_offset)
         tx = top_left[0] if top_left[0] >= 0 else 0
         ty = top_left[1] if top_left[1] >= 0 else 0
-        bx = bottom_right[0] if bottom_right[0] < self.original.shape[1] else self.original.shape[1] - 1
-        by = bottom_right[1] if bottom_right[1] < self.original.shape[0] else self.original.shape[0] - 1
+        bx = bottom_right[0] if bottom_right[0] < image.shape[1] else image.shape[1] - 1
+        by = bottom_right[1] if bottom_right[1] < image.shape[0] else image.shape[0] - 1
 
-        cropped = self.original[ty:by, tx:bx]
+        cropped = image[ty:by, tx:bx]
         width = cropped.shape[1]
         height = cropped.shape[0]
 
@@ -372,6 +426,17 @@ class BunkerHillCard:
         best_x = weighted_col_score.index(max(weighted_col_score))
 
         return (best_x+bounding_box[0]-vertex_offset, best_y+bounding_box[1]-vertex_offset)
+
+    def _swap_displayed_card(direction: int) -> None:
+        """
+        Swap the currently displayed card with either the next or previous card in the images directory
+
+        Args:
+            direction (int): direction to swap. 1 = previous, 2 = next
+        """
+        # TODO: finish function
+        if direction < 1 or direction > 2:
+            raise ValueError(f"Invalid swap card direction given: {direction} (must be either 1 or 2)")
 
     def _calculate_proximity_score(self, unweighted_list: list) -> list:
         weighted_score = [0 for i in range(len(unweighted_list))]
@@ -467,7 +532,7 @@ class BunkerHillCard:
         outp += "===============================================================================\n"
         print(outp)
 
-    def _define_box_edges(self) -> None:
+    def main_selection_loop(self) -> None:
         """
         Takes in the path to a census card and allows the user to select the edges of the census card to split the card
         into different sub-sections for individual analysis. When run the user will need to select a point to draw
@@ -492,7 +557,7 @@ class BunkerHillCard:
             if self.cursor_is_box:
                 win32api.SetCursor(None)
 
-            k = cv2.waitKey(1)
+            k = cv2.waitKeyEx(1)
             if k == 3014656:
                 if self.last_button_q:
                     print("quitting...")
@@ -523,12 +588,18 @@ class BunkerHillCard:
                     b = self.boxes[-1]
                     b["vertex_offset"] += 1
 
-                    # recalculate best vertex location
-                    b["top_left_vertex"] = self._find_vertex(b["top_left_bb"], b["vertex_offset"])
-                    b["top_right_vertex"] = self._find_vertex(b["top_right_bb"], b["vertex_offset"])
-                    b["bottom_left_vertex"] = self._find_vertex(b["bottom_left_bb"], b["vertex_offset"])
-                    b["bottom_right_vertex"] = self._find_vertex(b["bottom_right_bb"], b["vertex_offset"])
+                    self._update_all_vertex(b)
 
+            elif k == 2424832:
+                print("left!")
+                if self.current_image > 0:
+                    self.current_image -= 1
+                    self.unmodified_current = cv2.imread(self.image_paths[self.current_image])
+            elif k == 2555904:
+                print("right!")
+                if self.current_image < len(self.image_paths) - 1:
+                    self.current_image += 1
+                    self.unmodified_current = cv2.imread(self.image_paths[self.current_image])
             elif k == ord("-") or k == ord("_"):
                 self.last_button_q = False
                 if self.vertex_offset > 1:
@@ -541,10 +612,7 @@ class BunkerHillCard:
                     b["vertex_offset"] -= 1
 
                     # recalculate best vertex location
-                    b["top_left_vertex"] = self._find_vertex(b["top_left_bb"], b["vertex_offset"])
-                    b["top_right_vertex"] = self._find_vertex(b["top_right_bb"], b["vertex_offset"])
-                    b["bottom_left_vertex"] = self._find_vertex(b["bottom_left_bb"], b["vertex_offset"])
-                    b["bottom_right_vertex"] = self._find_vertex(b["bottom_right_bb"], b["vertex_offset"])
+                    self._update_all_vertex(b)
 
             elif k == ord("}") or k == ord("]"):
                 self.last_button_q = False
@@ -603,17 +671,6 @@ def split_census_image(path: str) -> None:
     cv2.destroyAllWindows()
 
 
-def process_cards(files: list[str]):
-
-    if len(files) > 0:
-        for f in files:
-            bhc = BunkerHillCard(IMAGES_DIR / f)
-            bhc.help()
-            bhc._define_box_edges()
-    else:
-        print(f"Error: no images found at {IMAGES_DIR}")
-
-
 def initiate_directory() -> bool:
     """
     Setup local directories and verify everything is intact
@@ -648,8 +705,9 @@ def initiate_directory() -> bool:
 def main():
     if initiate_directory():
         print(f"Image location: {IMAGES_DIR}")
-        files = os.listdir(IMAGES_DIR)
-        process_cards(files)
+        bhc = BunkerHillCard(IMAGES_DIR)
+        bhc.help()
+        bhc.main_selection_loop()
     else:
         print("Quitting...")
 
