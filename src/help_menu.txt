@@ -1,0 +1,19 @@
+===============================Census Selector=======+========================
+This is a function that helps the user select each sub-data field for each
+census card. To use, click the screen around the vertex of each section's box.
+Once you have drawn a box around each subfield hit enter and the program will
+save your selections so it can run data analysis on the census cards. Below is
+a list of each button you can use while drawing the boxes:
+
+_______________________________________________________________________________
+\'+\'=Increase Vertex Size: Increase the search distance for each box vertex.
+\'-\'=Decrease Vertex Size: Decrease the search distance for each box vertex.
+\'→\'=Right: Show the next image preview.
+\'←\'=Left: Show the previous image preview.
+\"h\'=Help: print this help menu to the terminal.
+\'u\'=Undo: Undo your last action.
+\'r\'=Redo: Redo the last undo.
+\'d\'=Display: Toggle between displaying and hiding the boxes you have drawn.
+\'q\'=Quit: Quit the application (without saving!).
+\'s\'=Save: saves your selections as sub-problems. Only use when you are done!
+===============================================================================

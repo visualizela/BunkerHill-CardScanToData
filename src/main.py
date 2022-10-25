@@ -7,7 +7,7 @@ import win32api
 from constants import (DATA_DIR, DEFAULT_VERTEX_OFFSET, DEFAULT_STROKE_SIZE, IMAGES_DIR, BOXED_PATH, SLICED_CARDS,
                        MOUSE_BOX_BUFFER_SIZE, MOUSE_BOX_SWITCH_TO_BOX_SPEED, MOUSE_BOX_SWITCH_TO_CURSOR_SPEED,
                        MOUSE_BOX_FLICKER_REDUCTION, MOUSE_BOX_COLOR, DEFAULT_BLANK_BOX_COLOR, VERTEX_WEIGHT_ON_CENTER,
-                       VERTEX_SIZE)
+                       VERTEX_SIZE, SRC_PATH)
 
 
 class BunkerHillCard:
@@ -514,23 +514,8 @@ class BunkerHillCard:
         """
         Print out the help menu to the terminal
         """
-        outp = "================================Census Selector================================\n"
-        outp += "This is a function that helps the user select each sub-data field for each\n"
-        outp += "census card. To use, click the screen around the vertex of each section's box.\n"
-        outp += "Once you have drawn a box around each subfield hit enter and the program will\n"
-        outp += "save your selections so it can run data analysis on the census cards. Below is\n"
-        outp += "a list of each button you can use while drawing the boxes:\n\n"
-        outp += "_______________________________________________________________________________\n"
-        outp += "\"h\'=Help: print this help menu to the terminal\n"
-        outp += "\'u\'=Undo: Undo your last action\n"
-        outp += "\'r\'=Redo: Redo the last undo\n"
-        outp += "\'d\'=Display: Toggle between displaying and hiding the boxes you have drawn\n"
-        outp += "\'+\'=Increase Vertex Size: Increase the search distance for each box vertex\n"
-        outp += "\'-\'=Decrease Vertex Size: Decrease the search distance for each box vertex\n"
-        outp += "\'q\'=Quit: Quit the application\n"
-        outp += "\'s\'=Save: saves your selections as sub-problems. Only use when you are done!\n"
-        outp += "===============================================================================\n"
-        print(outp)
+        file = open(os.path.join(SRC_PATH, "help_menu.txt"), "r", encoding="utf-8")
+        print(file.read())
 
     def main_selection_loop(self) -> None:
         """
@@ -591,12 +576,10 @@ class BunkerHillCard:
                     self._update_all_vertex(b)
 
             elif k == 2424832:
-                print("left!")
                 if self.current_image > 0:
                     self.current_image -= 1
                     self.unmodified_current = cv2.imread(self.image_paths[self.current_image])
             elif k == 2555904:
-                print("right!")
                 if self.current_image < len(self.image_paths) - 1:
                     self.current_image += 1
                     self.unmodified_current = cv2.imread(self.image_paths[self.current_image])
