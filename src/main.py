@@ -38,10 +38,11 @@ class BunkerHillCard:
     cursor_is_box = False
 
     # state flags
-    typing_box_name = False   # If program should capture user input as typing characters
+    current_mode = 0          # Mode of the application: 0=box_select, 1=text_mode, 2=image_edit
     display_state = 0         # How to draw the page 1=show boxes, 2=show only current box, 3=hide all
     last_button_q = False     # Flag to track if the last button press was 'q'
     current_image = 0         # Index of current image to show
+    show_preview_box = True
 
     # Naming mode variabes
     word = ""
@@ -176,7 +177,7 @@ class BunkerHillCard:
         cv2.rectangle(image, brz_tl, brz_br, c, ss)
 
         # cv2.putText(image, box["name"], (tlbb[0]+20, tlbb[1]+30), font, 1, c, ss, cv2.LINE_AA)
-        if self.typing_box_name and box == self.boxes[-1]:
+        if self.current_mode == 1 and box == self.boxes[-1]:
             invert = (255 - c[0], 255 - c[1], 255 - c[2])
             self._draw_box_text(image, box, tlbb, (10, 10), 1, ss, c, text_color_bg=invert)
         else:
@@ -379,6 +380,37 @@ class BunkerHillCard:
 
         cv2.imshow('image', to_show)
 
+    def _draw_box_window(self, box: dict, magnification: float = 2):
+        """
+        Draw the provided box in a separate window
+
+        Args:
+            image (any): image to draw it on
+            box (dict): box to draw
+            magnification (float): magnification multiple
+        """
+        if self.show_preview_box and box is not None:
+            to_show = self.unmodified_current.copy()
+
+            image_name = self.image_names[self.current_image]
+            top_left = box[image_name]["top_left_vertex"]
+            bottom_right = box[image_name]["bottom_right_vertex"]
+            top_left_x = max(top_left[0], 0)
+            top_left_y = max(top_left[1], 0)
+
+            bottom_right_x = bottom_right[0]
+            bottom_right_y = bottom_right[1]
+
+            cropped = to_show[top_left_y:bottom_right_y, top_left_x:bottom_right_x]
+            resized = cv2.resize(cropped, None, fx=magnification, fy=magnification, interpolation=cv2.INTER_LINEAR)
+            cv2.imshow('Box view', resized)
+
+        else:
+            try:
+                cv2.destroyWindow("Box view")
+            except cv2.error:
+                return
+
     def _create_selection(self, x: int, y: int) -> None:
         """
         Create selection around the current mouse location
@@ -398,10 +430,11 @@ class BunkerHillCard:
         """
         Create a box using the current selections. Resets the `curr_box` and `selections` lists after box is created
         """
+
         # Setup box naming variables
         self.word = f"box{len(self.boxes)}"
         self.cursor_index = len(self.word)
-        self.typing_box_name = True
+        self.current_mode = 1
         self.started_typing = False
 
         # append other two implicit corners
@@ -488,8 +521,8 @@ class BunkerHillCard:
             image = self.unmodified_current
         top_left = (bounding_box[0] - vertex_offset, bounding_box[1] - vertex_offset)
         bottom_right = (bounding_box[0] + vertex_offset, bounding_box[1] + vertex_offset)
-        tx = top_left[0] if top_left[0] >= 0 else 0
-        ty = top_left[1] if top_left[1] >= 0 else 0
+        tx = max(top_left[0], 0)
+        ty = max(top_left[1], 0)
         bx = bottom_right[0] if bottom_right[0] < image.shape[1] else image.shape[1] - 1
         by = bottom_right[1] if bottom_right[1] < image.shape[0] else image.shape[0] - 1
 
@@ -519,17 +552,6 @@ class BunkerHillCard:
         best_x = weighted_col_score.index(max(weighted_col_score))
 
         return (best_x+bounding_box[0]-vertex_offset, best_y+bounding_box[1]-vertex_offset)
-
-    def _swap_displayed_card(direction: int) -> None:
-        """
-        Swap the currently displayed card with either the next or previous card in the images directory
-
-        Args:
-            direction (int): direction to swap. 1 = previous, 2 = next
-        """
-        # TODO: finish function
-        if direction < 1 or direction > 2:
-            raise ValueError(f"Invalid swap card direction given: {direction} (must be either 1 or 2)")
 
     def _calculate_proximity_score(self, unweighted_list: list) -> list:
         weighted_score = [0 for i in range(len(unweighted_list))]
@@ -656,14 +678,13 @@ class BunkerHillCard:
                 self.cursor_index = 0
                 self.started_typing = True
 
-
             if self.cursor_index > 0:
                 self.word = self.word[:self.cursor_index-1] + self.word[self.cursor_index:]
                 self.cursor_index -= 1
 
         # Finish typing box name
         elif key == 27 or key == 13:
-            self.typing_box_name = False
+            self.current_mode = 0
             self.cursor_index = 0
             return self.word
 
@@ -688,10 +709,17 @@ class BunkerHillCard:
             self.started_typing = True
             if self.cursor_index > 0:
                 self.cursor_index -= 1
+
+        # Show a magnified version of current box
+        elif key == 22:
+            self.show_preview_box = not self.show_preview_box
+            self._draw_box_window(self.boxes[-1], 2)
+
         else:
             if key != -1:
                 print(f"Debug: uncaptured key: {key}")
             draw_text = False
+
         return self.word[:self.cursor_index] + "|" + self.word[self.cursor_index:] if draw_text else None
 
     def help(self) -> None:
@@ -721,6 +749,11 @@ class BunkerHillCard:
         while True:
             self._draw_image()
 
+            if len(self.boxes) > 0:
+                self._draw_box_window(self.boxes[-1], 2)
+            else:
+                self._draw_box_window(None, 2)
+
             # update mouse position
             self.mouse_locations.append(self.mouse_locations[-1])
             self.mouse_locations.pop(0)
@@ -729,7 +762,7 @@ class BunkerHillCard:
 
             k = cv2.waitKeyEx(1)
             # if user is typing box name capture inputs to type
-            if self.typing_box_name:
+            if self.current_mode == 1:
                 word = self._capture_typing(k)
                 if word:
                     self.boxes[-1]["name"] = word
@@ -775,6 +808,9 @@ class BunkerHillCard:
                 if self.current_image < len(self.image_paths) - 1:
                     self.current_image += 1
                     self.unmodified_current = cv2.imread(self.image_paths[self.current_image])
+            elif k == 22:
+                self.show_preview_box = not self.show_preview_box
+
             elif k == ord("-") or k == ord("_"):
                 self.last_button_q = False
                 if self.vertex_offset > 1:

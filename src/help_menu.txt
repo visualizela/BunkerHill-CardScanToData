@@ -21,6 +21,7 @@ Controls:
 'd'=Display: Toggle between displaying and hiding the boxes you have drawn.
 'q'=Quit: Quit the application (without saving!).
 's'=Save: saves your selections as sub-problems. Only use when you are done!
+'ctrl+v'=preview: Show/Hide preview box.
 
 _______________________________Text mode controls_____________________________
 Text mode allows the user to enter the name of a box. This mode behaves like
@@ -41,5 +42,6 @@ Controls:
 'end': Jump to the end of the line.
 'ctrl+backspace': Delete word left of the cursor.
 'return': save the box name and exit text mode.
+'ctrl+v': Show/Hide preview box.
 
 ==============================================================================
