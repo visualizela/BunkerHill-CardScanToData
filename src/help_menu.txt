@@ -5,7 +5,10 @@ Once you have drawn a box around each subfield hit enter and the program will
 save your selections so it can run data analysis on the census cards. Below is
 a list of each button you can use while drawing the boxes:
 
-_______________________________________________________________________________
+_______________________________Image mode controls____________________________
+Image mode is the default mode.
+
+Controls:
 \'+\'=Increase Vertex Size: Increase the search distance for each box vertex.
 \'-\'=Decrease Vertex Size: Decrease the search distance for each box vertex.
 \'→\'=Right: Show the next image preview.
@@ -16,4 +19,7 @@ _______________________________________________________________________________
 \'d\'=Display: Toggle between displaying and hiding the boxes you have drawn.
 \'q\'=Quit: Quit the application (without saving!).
 \'s\'=Save: saves your selections as sub-problems. Only use when you are done!
-===============================================================================
+
+_______________________________Text mode controls_____________________________
+
+==============================================================================

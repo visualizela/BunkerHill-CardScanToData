@@ -1,3 +1,4 @@
+from re import L
 import cv2
 import json
 import numpy as np
@@ -7,27 +8,45 @@ import win32api
 from constants import (DATA_DIR, DEFAULT_VERTEX_OFFSET, DEFAULT_STROKE_SIZE, IMAGES_DIR, BOXED_PATH, SLICED_CARDS,
                        MOUSE_BOX_BUFFER_SIZE, MOUSE_BOX_SWITCH_TO_BOX_SPEED, MOUSE_BOX_SWITCH_TO_CURSOR_SPEED,
                        MOUSE_BOX_FLICKER_REDUCTION, MOUSE_BOX_COLOR, DEFAULT_BLANK_BOX_COLOR, VERTEX_WEIGHT_ON_CENTER,
-                       VERTEX_SIZE, SRC_PATH)
+                       VERTEX_SIZE, SRC_PATH, DRAW_TEXT_BACKGROUND_PADDING)
 
 
 class BunkerHillCard:
+
+    # Undo variables
+    last_undo = None
+
+    # Image variables
+    unmodified_current = None
     image_names = []
     image_paths = []
-    current_image = 0
-    unmodified_current = None
-    display_state = 0
-    boxes = []
-    last_undo = None
-    curr_box = {}
+
+    # selection variables
     selections = []
     selection_vertexes = []
+
+    # Box variables
+    boxes = []
+    curr_box = {}
+    box_json = {}
     vertex_offset = DEFAULT_VERTEX_OFFSET
     stroke_size = DEFAULT_STROKE_SIZE
-    box_json = {}
+
+    # Cursor variables
     mouse_locations = [[0, 0] for i in range(MOUSE_BOX_BUFFER_SIZE)]
     frames_since_cursor_transition = 99
     cursor_is_box = False
-    last_button_q = False
+
+    # state flags
+    typing_box_name = False   # If program should capture user input as typing characters
+    display_state = 0         # How to draw the page 1=show boxes, 2=show only current box, 3=hide all
+    last_button_q = False     # Flag to track if the last button press was 'q'
+    current_image = 0         # Index of current image to show
+
+    # Naming mode variabes
+    word = ""
+    cursor_index = 0
+    started_typing = False
 
     def __init__(self, path: str) -> None:
         """
@@ -156,8 +175,12 @@ class BunkerHillCard:
         brz_br = (brbb[0]+vertex_offset, brbb[1]-vertex_offset)
         cv2.rectangle(image, brz_tl, brz_br, c, ss)
 
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        cv2.putText(image, box["name"], (tlbb[0]+20, tlbb[1]+30), font, 1, c, ss, cv2.LINE_AA)
+        # cv2.putText(image, box["name"], (tlbb[0]+20, tlbb[1]+30), font, 1, c, ss, cv2.LINE_AA)
+        if self.typing_box_name and box == self.boxes[-1]:
+            invert = (255 - c[0], 255 - c[1], 255 - c[2])
+            self._draw_box_text(image, box, tlbb, (10, 10), 1, ss, c, text_color_bg=invert)
+        else:
+            self._draw_box_text(image, box, tlbb, (10, 10), 1, ss, c)
 
         return image
 
@@ -188,6 +211,71 @@ class BunkerHillCard:
                    thickness=2)
 
         return image
+
+    def _draw_box_text(self, image, box: dict, pos: list, offset: list, font_scale: int, font_thickness: int,
+                       text_color: tuple, font: int = cv2.FONT_HERSHEY_COMPLEX_SMALL, text_color_bg: tuple = None):
+
+        x, y = pos
+        offx, offy = offset
+        pad = DRAW_TEXT_BACKGROUND_PADDING
+        text = box["name"]
+
+        # char_size, _ = cv2.getTextSize(text[0], font, font_scale, font_thickness)
+
+        box_width = box["top_right_bb"][0] - box["top_left_bb"][0]
+        # number_of_rows = int(np.ceil(text_w / box_width))
+        # chars_per_row = int(max(np.floor(char_size[0]), 1))
+
+        combined_height = 0
+        curr_line = ""
+        check_spot = 0
+        while len(text) > 0:
+            curr_line += text[check_spot]
+            line_size, _ = cv2.getTextSize(curr_line, font, font_scale, font_thickness)
+            line_w, line_h = line_size
+
+            # as soon as our current line is too large for the box
+            if line_w + pad + offx >= box_width or len(curr_line) == len(text):
+                if len(curr_line) != len(text):
+                    curr_line = curr_line[:-1]
+                    # update line_size for bounding box
+                    line_size, _ = cv2.getTextSize(curr_line, font, font_scale, font_thickness)
+                    line_w, line_h = line_size
+
+                if text_color_bg is not None:
+                    cv2.rectangle(image,
+                                  (x + offx - pad, y + offy - pad + combined_height),
+                                  (x + offx + line_w + pad, y + line_h + offy + pad + combined_height),
+                                  text_color_bg, -1)
+                cv2.putText(image, curr_line,
+                            (x + offx, y + line_h + font_scale - 1 + offy + combined_height),
+                            font,
+                            font_scale,
+                            text_color,
+                            font_thickness)
+                check_spot = 0
+                text = text[len(curr_line):]
+                combined_height += line_h + 2*pad + 1
+                curr_line = ""
+            else:
+                check_spot += 1
+
+
+
+
+
+        # for i in range(number_of_rows):
+        #     x_start = x + offx
+
+        #     start_text = i*chars_per_row
+        #     if i != number_of_rows-1:
+        #         end_text = i*chars_per_row+chars_per_row
+        #     else:
+        #         end_text = i*chars_per_row+chars_per_row
+        #     print(f"taking min: {i*chars_per_row+chars_per_row} vs {len(text) - number_of_rows*chars_per_row}")
+        #     print(f"text: {text} | [{start_text}:{end_text}] | length: {len(text)}")
+        #     cv2.putText(image, text[start_text:end_text], (x_start, y + text_h + font_scale - 1 + offy), font, font_scale, text_color, font_thickness)
+
 
     def _draw_mouse_box(self, image: np.ndarray) -> np.ndarray:
         """
@@ -310,6 +398,12 @@ class BunkerHillCard:
         """
         Create a box using the current selections. Resets the `curr_box` and `selections` lists after box is created
         """
+        # Setup box naming variables
+        self.word = f"box{len(self.boxes)}"
+        self.cursor_index = len(self.word)
+        self.typing_box_name = True
+        self.started_typing = False
+
         # append other two implicit corners
         self.selections.append((self.selections[0][0], self.selections[1][1]))
         self.selections.append((self.selections[1][0], self.selections[0][1]))
@@ -334,7 +428,7 @@ class BunkerHillCard:
         # Update vertex selection for all images
         self._update_all_vertex(self.curr_box)
 
-        self.curr_box["name"] = f"box{len(self.boxes)}"
+        self.curr_box["name"] = self.word
         self.curr_box["vertex_offset"] = self.vertex_offset
         self.curr_box["stroke_size"] = self.stroke_size
 
@@ -385,7 +479,6 @@ class BunkerHillCard:
             c_image = cv2.imread(self.image_paths[index])
             # recalculate best vertex location
             c["top_left_vertex"] = self._find_vertex(box["top_left_bb"], box["vertex_offset"], image=c_image)
-            print(c["top_left_vertex"])
             c["top_right_vertex"] = self._find_vertex(box["top_right_bb"], box["vertex_offset"], image=c_image)
             c["bottom_left_vertex"] = self._find_vertex(box["bottom_left_bb"], box["vertex_offset"], image=c_image)
             c["bottom_right_vertex"] = self._find_vertex(box["bottom_right_bb"], box["vertex_offset"], image=c_image)
@@ -510,6 +603,97 @@ class BunkerHillCard:
 
         print("selections have been saved")
 
+    def _capture_typing(self, key: int) -> None:
+        draw_text = True
+
+        # print(f"word: \"{self.word}\" ({len(self.word)}) | cursor location: {self.cursor_index}")
+        if key >= 32 and key <= 126:
+            # Delete default word if user hasn't started typing yet
+            if not self.started_typing:
+                self.word = ""
+                self.cursor_index = 0
+                self.started_typing = True
+
+            self.word = self.word[:self.cursor_index] + chr(key) + self.word[self.cursor_index:]
+            self.cursor_index += 1
+            # self.word = self.word[:self.cursor_index-1] + self.word[self.cursor_index:]
+
+        # delete character ahead of cursor
+        elif key == 3014656:
+            if self.cursor_index < len(self.word):
+                self.word = self.word[:self.cursor_index] + self.word[self.cursor_index+1:]
+
+        # backspace next word (deletes all characters between cursor and white space)
+        elif key == 127:
+            if not self.started_typing:
+                self.word = ""
+                self.cursor_index = 0
+                self.started_typing = True
+
+            if self.cursor_index > 0:
+                curr_char = self.word[self.cursor_index-1]
+                deleted = False
+                deleted_non_whitespace = False
+                while (curr_char != " " or deleted_non_whitespace is False) and self.cursor_index > 0:
+                    self.word = self.word[:self.cursor_index-1] + self.word[self.cursor_index:]
+                    self.cursor_index -= 1
+                    if self.cursor_index > 0:
+                        curr_char = self.word[self.cursor_index-1]
+                    deleted = True
+                    if curr_char != " ":
+                        deleted_non_whitespace = True
+
+                if not deleted:
+                    self.word = self.word[:self.cursor_index-1] + self.word[self.cursor_index:]
+                    self.cursor_index -= 1
+
+        # backspace character behind the cursor and shift cursor back
+        elif key == 8:
+
+            # Delete default word if user hasn't started typing yet
+            if not self.started_typing:
+                self.word = ""
+                self.cursor_index = 0
+                self.started_typing = True
+
+
+            if self.cursor_index > 0:
+                self.word = self.word[:self.cursor_index-1] + self.word[self.cursor_index:]
+                self.cursor_index -= 1
+
+        # Finish typing box name
+        elif key == 27 or key == 13:
+            self.typing_box_name = False
+            self.cursor_index = 0
+            return self.word
+
+        # move cursor to end of line
+        elif key == 7929856:
+            self.started_typing = True
+            self.cursor_index = len(self.word)
+
+        # move to start of line
+        elif key == 7864320 or key == 1:
+            self.started_typing = True
+            self.cursor_index = 0
+
+        # move cursor right
+        elif key == 2555904:
+            self.started_typing = True
+            if self.cursor_index < len(self.word):
+                self.cursor_index += 1
+
+        # move cursor left
+        elif key == 2424832:
+            self.started_typing = True
+            if self.cursor_index > 0:
+                self.cursor_index -= 1
+        else:
+            if key != -1:
+                print(f"Debug: uncaptured key: {key}")
+            draw_text = False
+        return self.word[:self.cursor_index] + "|" + self.word[self.cursor_index:] if draw_text else None
+
     def help(self) -> None:
         """
         Print out the help menu to the terminal
@@ -536,6 +720,7 @@ class BunkerHillCard:
         win32api.SetCursor(None)
         while True:
             self._draw_image()
+
             # update mouse position
             self.mouse_locations.append(self.mouse_locations[-1])
             self.mouse_locations.pop(0)
@@ -543,6 +728,13 @@ class BunkerHillCard:
                 win32api.SetCursor(None)
 
             k = cv2.waitKeyEx(1)
+            # if user is typing box name capture inputs to type
+            if self.typing_box_name:
+                word = self._capture_typing(k)
+                if word:
+                    self.boxes[-1]["name"] = word
+                continue
+
             if k == 3014656:
                 if self.last_button_q:
                     print("quitting...")
