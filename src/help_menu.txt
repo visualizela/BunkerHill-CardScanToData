@@ -6,20 +6,40 @@ save your selections so it can run data analysis on the census cards. Below is
 a list of each button you can use while drawing the boxes:
 
 _______________________________Image mode controls____________________________
-Image mode is the default mode.
+Image mode is the default mode. This mode allows the user to select the
+vertical edges of a census card box so that the box can be broken down into
+sub images for later analysis.
 
 Controls:
-\'+\'=Increase Vertex Size: Increase the search distance for each box vertex.
-\'-\'=Decrease Vertex Size: Decrease the search distance for each box vertex.
-\'→\'=Right: Show the next image preview.
-\'←\'=Left: Show the previous image preview.
-\"h\'=Help: print this help menu to the terminal.
-\'u\'=Undo: Undo your last action.
-\'r\'=Redo: Redo the last undo.
-\'d\'=Display: Toggle between displaying and hiding the boxes you have drawn.
-\'q\'=Quit: Quit the application (without saving!).
-\'s\'=Save: saves your selections as sub-problems. Only use when you are done!
+'+'=Increase Vertex Size: Increase the search distance for each box vertex.
+'-'=Decrease Vertex Size: Decrease the search distance for each box vertex.
+'→'=Right: Show the next image preview.
+'←'=Left: Show the previous image preview.
+'h'=Help: print this help menu to the terminal.
+'u'=Undo: Undo your last action.
+'r'=Redo: Redo the last undo.
+'d'=Display: Toggle between displaying and hiding the boxes you have drawn.
+'q'=Quit: Quit the application (without saving!).
+'s'=Save: saves your selections as sub-problems. Only use when you are done!
 
 _______________________________Text mode controls_____________________________
+Text mode allows the user to enter the name of a box. This mode behaves like
+most standardized text box editing. None of the image mode controls will work
+while text mode is enabled. This mode is activated when the user creates a new
+box and is disabled when the user hits enter on the keyboard (saving the box
+name). Note: the text viewed on screen is wrapped but only the raw input is
+saved to the json. This means the word wrapping is purely visual and has no
+impact on what is saved to the json.
+
+Controls:
+'character'=Entering any ascii letter or symbol will type to the box name.
+'→'=Right: Move the cursor right.
+'←'=Left: Move the cursor left.
+'backspace': Delete the character to the left of the cursor.
+'delete': Delete the character to the right of the cursor.
+'home': Jump to the front of the line.
+'end': Jump to the end of the line.
+'ctrl+backspace': Delete word left of the cursor.
+'return': save the box name and exit text mode.
 
 ==============================================================================
