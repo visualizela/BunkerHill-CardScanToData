@@ -5,7 +5,7 @@ Once you have drawn a box around each subfield hit enter and the program will
 save your selections so it can run data analysis on the census cards. Below is
 a list of each button you can use while drawing the boxes:
 
-_______________________________Image mode controls____________________________
+_______________________________Box mode controls____________________________
 Image mode is the default mode. This mode allows the user to select the
 vertical edges of a census card box so that the box can be broken down into
 sub images for later analysis.
@@ -19,6 +19,8 @@ Controls:
 'u'=Undo: Undo your last action.
 'r'=Redo: Redo the last undo.
 'd'=Display: Toggle between displaying and hiding the boxes you have drawn.
+'t'=Text mode: Enter text mode on most recent box.
+'l'=Image mode: Enter image mode on current image.
 'q'=Quit: Quit the application (without saving!).
 's'=Save: saves your selections as sub-problems. Only use when you are done!
 'ctrl+v'=preview: Show/Hide preview box.
@@ -34,8 +36,8 @@ impact on what is saved to the json.
 
 Controls:
 'character'=Entering any ascii letter or symbol will type to the box name.
-'→'=Right: Move the cursor right.
 '←'=Left: Move the cursor left.
+'→'=Right: Move the cursor right.
 'backspace': Delete the character to the left of the cursor.
 'delete': Delete the character to the right of the cursor.
 'home': Jump to the front of the line.
@@ -43,5 +45,23 @@ Controls:
 'ctrl+backspace': Delete word left of the cursor.
 'return': save the box name and exit text mode.
 'ctrl+v': Show/Hide preview box.
+
+______________________________Image mode controls_____________________________
+Image mode allows the user to shift the current image allowing for better
+aligned images. While in this mode the user cannot edit boxes. Note: when
+saving the shift will overwrite the image in the image folder. This cannot
+be undone. Additionally, shifting the image left or up will lossily crop the
+image. The only way to undo a saved image mode edit is to replace the image
+manually from the file explorer.
+
+Controls:
+'↑'=Up: Shift the image up. DELETES the pixels on the top.
+'←'=Left: Shift the image left. DELETES the pixels on the left.
+'→'=Right: Shift the image right. Adds a border on left side.
+'↓'=Down: Shift the image down. Adds border on the top side.
+'r'=Reset: Reset the current shift.
+'l'=Quit: quit out of image mode.
+'return'=Save: save the image edit and overwrite the original file.
+'ctrl+v'=Preview: show/hide preview box
 
 ==============================================================================

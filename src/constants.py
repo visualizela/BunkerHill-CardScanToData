@@ -26,3 +26,7 @@ MOUSE_BOX_COLOR = (0, 0, 255)          # (blue, green, red)
 # Vertex selection
 VERTEX_WEIGHT_ON_CENTER = 0.15         # Percent weighting towards finding vertexes close to the center of bounding box
 VERTEX_SIZE = 3                        # How large to draw the vertex circle radius
+
+# Image mode
+DEFAULT_SHIFT_SIZE = 5                 # Default number of pixels to shift image by
+DEFAULT_BORDER_COLOR = (0, 0, 0)
