@@ -41,18 +41,18 @@ class BunkerHillCard:
     display_state = 0         # How to draw the page 1=show boxes, 2=show only current box, 3=hide all
     last_button_q = False     # Flag to track if the last button press was 'q'
     current_image = 0         # Index of current image to show
-    show_preview_box = True
-    selected_box_index = -1
+    show_preview_box = True   # If the preview box window should be displayed
+    selected_box_index = -1   # Index of the current selected box
 
     # Text mode variables
-    word = ""
-    cursor_index = 0
-    started_typing = False
+    word = ""                 # Current content of typed word for text mode
+    cursor_index = 0          # Position of the cursor in the current word
+    started_typing = False    # If user has started typing (used to delete default word)
 
     # Image mode variables
-    shift_size = DEFAULT_SHIFT_SIZE
-    shift_image = None
-    image_mode_last_quit = False
+    shift_size = DEFAULT_SHIFT_SIZE  # How far to shift border on arrow click
+    shift_image = None               # Displayed image for shift mode before it is saved
+    image_mode_last_quit = False     # Confirm quit for image mode
 
     def __init__(self, path: str) -> None:
         """
@@ -684,7 +684,7 @@ class BunkerHillCard:
         self.box_json["metadata"]["total_boxes"] = len(self.boxes)
         self.box_json["boxes"] = self.boxes
 
-        with open(os.path.join(BOXED_PATH, self.box_json["metadata"]["name"]), 'w', encoding='utf-8') as f:
+        with open(os.path.join(BOXED_PATH, "boxes.json"), 'w', encoding='utf-8') as f:
             json.dump(self.box_json, f, ensure_ascii=False, indent=3)
 
         print("selections have been saved")

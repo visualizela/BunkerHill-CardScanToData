@@ -29,4 +29,4 @@ VERTEX_SIZE = 3                        # How large to draw the vertex circle rad
 
 # Image mode
 DEFAULT_SHIFT_SIZE = 5                 # Default number of pixels to shift image by
-DEFAULT_BORDER_COLOR = (0, 0, 0)
+DEFAULT_BORDER_COLOR = (0, 0, 0)       # Default border color for image mode

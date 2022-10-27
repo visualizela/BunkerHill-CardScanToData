@@ -15,6 +15,8 @@ Controls:
 '-'=Decrease Vertex Size: Decrease the search distance for each box vertex.
 '→'=Right: Show the next image preview.
 '←'=Left: Show the previous image preview.
+'↑'=Up: Select the next box as current. Affects which box is modified.
+'↓'=Down: Select the prev box as current. Affects which box is modified.
 'h'=Help: print this help menu to the terminal.
 'u'=Undo: Undo your last action.
 'r'=Redo: Redo the last undo.
