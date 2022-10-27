@@ -1,4 +1,3 @@
-from re import L
 import cv2
 import json
 import numpy as np
@@ -141,7 +140,6 @@ class BunkerHillCard:
         vertex_offset = box["vertex_offset"]
         ss = box["stroke_size"]
         selected_stroke = 0
-
 
         c = box["color"]
         tlbb = box["top_left_bb"]
@@ -313,9 +311,12 @@ class BunkerHillCard:
             # draw vertex
             detected_vertex = self._find_vertex((mouse[0], mouse[1]), self.vertex_offset)
             cv2.circle(image, (detected_vertex[0], detected_vertex[1]), radius=3, color=(0, 0, 255), thickness=2)
+
         # Draw character if mouse in text mode
         elif self.current_mode == 1:
-            cv2.putText(image, "[A]", (mouse[0], mouse[1]), cv2.FONT_HERSHEY_DUPLEX, 1, MOUSE_BOX_COLOR, self.stroke_size)
+            cv2.putText(image, "[A]", (mouse[0]-20, mouse[1]+10), cv2.FONT_HERSHEY_DUPLEX, 1, MOUSE_BOX_COLOR,
+                        self.stroke_size)
+
         elif self.current_mode == 2:
 
             tl = 0.5
@@ -772,9 +773,7 @@ class BunkerHillCard:
             self.started_typing = True
             if self.cursor_index > 0:
                 self.cursor_index -= 1
-        else:
-            if key != -1:
-                print(f"Debug: uncaptured key: {key}")
+
             draw_text = False
 
         return self.word[:self.cursor_index] + "|" + self.word[self.cursor_index:] if draw_text else None
@@ -813,6 +812,7 @@ class BunkerHillCard:
         elif key == ord("l"):
             self.last_button_q = False
             self.current_mode = 2
+            print("Entering Image mode")
         elif key == ord("t"):
             self.last_button_q = False
             if len(self.boxes) > 0:
@@ -969,7 +969,7 @@ class BunkerHillCard:
         if key == ord("l") or key == 27:
             if self.image_mode_last_quit:
                 self.shift_image = self.unmodified_current.copy()
-                print("Leaving image mode")
+                print("Entering box mode")
                 self.current_mode = 0
                 self.image_mode_last_quit = False
                 for b in self.boxes:
