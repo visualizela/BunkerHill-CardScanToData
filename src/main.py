@@ -2,8 +2,10 @@ import cv2
 import json
 import numpy as np
 import os
+import shutil
 import win32api
 
+from datetime import date
 from constants import (DATA_DIR, DEFAULT_VERTEX_OFFSET, DEFAULT_STROKE_SIZE, IMAGES_DIR, BOXED_PATH, SLICED_CARDS,
                        MOUSE_BOX_BUFFER_SIZE, MOUSE_BOX_SWITCH_TO_BOX_SPEED, MOUSE_BOX_SWITCH_TO_CURSOR_SPEED,
                        MOUSE_BOX_FLICKER_REDUCTION, MOUSE_BOX_COLOR, DEFAULT_BLANK_BOX_COLOR, VERTEX_WEIGHT_ON_CENTER,
@@ -900,12 +902,53 @@ class BunkerHillCard:
         elif key == 13:
             self.last_button_q = False
             if self.last_button_ret:
-                for b in self.boxes:
-                    for i in self.image_paths:
-                        print("hi")
-                # for box in boxes
-                    # for image in images
-                        # make crops
+                print("saving boxed zones...")
+                save_success = True
+
+                now = date.today()
+                now_string = now.strftime("%m-%d-%Y")
+                base_dir = os.path.join(SLICED_CARDS, now_string)
+
+                # Separate file saves by day
+                if not os.path.exists(base_dir):
+                    os.mkdir(base_dir)
+                else:
+                    shutil.rmtree(base_dir)
+                    os.mkdir(base_dir)
+
+                for i, path in enumerate(self.image_paths):
+                    c_image = cv2.imread(path)
+
+                    for box in self.boxes:
+
+                        # Crop the images around the box selections
+                        box_name = box["name"]
+                        image_name = self.image_names[i]
+                        top_left = box[image_name]["top_left_vertex"]
+                        bottom_right = box[image_name]["bottom_right_vertex"]
+                        top_left_x = max(top_left[0], 0)
+                        top_left_y = max(top_left[1], 0)
+
+                        bottom_right_x = bottom_right[0]
+                        bottom_right_y = bottom_right[1]
+
+                        cropped = c_image[top_left_y:bottom_right_y, top_left_x:bottom_right_x]
+
+                        # make appropriate directories and image paths
+                        image_dir = os.path.join(base_dir, box_name)
+                        if not os.path.exists(image_dir):
+                            os.mkdir(image_dir)
+                        save_path = os.path.join(image_dir, image_name)
+                        cv2.imwrite(save_path, cropped)
+                        if not os.path.isfile(f"{save_path}"):
+                            print("Error: failed to save image ({save_path})")
+                            save_success = False
+
+                if save_success:
+                    print("Save successful!")
+                else:
+                    print("Save failed on one or more images. Please check file permissions")
+
                 return False
             else:
                 self.last_button_ret = True
