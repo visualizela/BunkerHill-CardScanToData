@@ -40,6 +40,7 @@ class BunkerHillCard:
     current_mode = 0          # Mode of the application: 0=box_mode, 1=text_mode, 2=image_mode
     display_state = 0         # How to draw the page 1=show boxes, 2=show only current box, 3=hide all
     last_button_q = False     # Flag to track if the last button press was 'q'
+    last_button_ret = False   # Flag to trach if the last button press was 'return'
     current_image = 0         # Index of current image to show
     show_preview_box = True   # If the preview box window should be displayed
     selected_box_index = -1   # Index of the current selected box
@@ -789,6 +790,7 @@ class BunkerHillCard:
             _type_: _description_
         """
         if key == 3014656:
+            self.last_button_ret = False
             if self.last_button_q:
                 print("quitting...")
                 cv2.destroyAllWindows()
@@ -798,23 +800,29 @@ class BunkerHillCard:
                 self.last_button_q = True
         elif key == ord("d"):
             self.last_button_q = False
+            self.last_button_ret = False
             self.display_state += 1
             print(f"Display state: {self.display_state % 3}")
         elif key == ord("u"):
             self.last_button_q = False
+            self.last_button_ret = False
             self._undo_last_action()
         elif key == ord("r"):
             self.last_button_q = False
+            self.last_button_ret = False
             self._redo_last_undo()
         elif key == ord("h"):
             self.last_button_q = False
+            self.last_button_ret = False
             self.help()
         elif key == ord("l"):
             self.last_button_q = False
+            self.last_button_ret = False
             self.current_mode = 2
             print("Entering Image mode")
         elif key == ord("t"):
             self.last_button_q = False
+            self.last_button_ret = False
             if len(self.boxes) > 0:
                 self.word = self.boxes[self.selected_box_index]["name"]
                 self.cursor_index = len(self.boxes[self.selected_box_index]["name"])
@@ -823,6 +831,7 @@ class BunkerHillCard:
 
         elif key == ord("+") or key == ord("="):
             self.last_button_q = False
+            self.last_button_ret = False
             self.vertex_offset += 1
             print(f"Vertex size: {self.vertex_offset}")
             # If there is no selection made adjust selected box vertex offset
@@ -834,6 +843,8 @@ class BunkerHillCard:
 
         # left arrow key
         elif key == 2424832:
+            self.last_button_q = False
+            self.last_button_ret = False
             if self.current_image > 0:
                 self.current_image -= 1
                 self.unmodified_current = cv2.imread(self.image_paths[self.current_image])
@@ -841,6 +852,8 @@ class BunkerHillCard:
 
         # right arrow key
         elif key == 2555904:
+            self.last_button_q = False
+            self.last_button_ret = False
             if self.current_image < len(self.image_paths) - 1:
                 self.current_image += 1
                 self.unmodified_current = cv2.imread(self.image_paths[self.current_image])
@@ -848,6 +861,8 @@ class BunkerHillCard:
 
         # Down key
         elif key == 2621440:
+            self.last_button_q = False
+            self.last_button_ret = False
             if self.selected_box_index == -1:
                 self.selected_box_index = len(self.boxes) - 1
             elif self.selected_box_index > 0:
@@ -857,6 +872,8 @@ class BunkerHillCard:
 
         # Up key
         elif key == 2490368:
+            self.last_button_q = False
+            self.last_button_ret = False
             if self.selected_box_index == -1:
                 self.selected_box_index = len(self.boxes) - 1
 
@@ -865,7 +882,17 @@ class BunkerHillCard:
             else:
                 self.selected_box_index = 0
 
+        # save and exit
+        elif key == 13:
+            self.last_button_q = False
+            if self.last_button_ret:
+
+            else:
+                self.last_button_ret = True
+                print("Split box selections and quit? Hit enter again to confirm.")
+
         elif key == ord("-") or key == ord("_"):
+            self.last_button_ret = False
             self.last_button_q = False
             if self.vertex_offset > 1:
                 self.vertex_offset -= 1
@@ -882,6 +909,7 @@ class BunkerHillCard:
                 self._update_all_vertex(b)
 
         elif key == ord("}") or key == ord("]"):
+            self.last_button_ret = False
             self.last_button_q = False
             self.stroke_size += 1
             print(f"Stroke size: {self.stroke_size}")
@@ -892,6 +920,7 @@ class BunkerHillCard:
 
         elif key == ord("{") or key == ord("["):
             self.last_button_q = False
+            self.last_button_ret = False
             if self.stroke_size > 1:
                 self.stroke_size -= 1
 
@@ -903,9 +932,11 @@ class BunkerHillCard:
 
         elif key == ord("s"):
             self.last_button_q = False
+            self.last_button_ret = False
             print("saving")
             self._save_outline()
         elif key == ord("q"):
+            self.last_button_ret = False
             if self.last_button_q:
                 print("Quitting...")
                 cv2.destroyAllWindows()
