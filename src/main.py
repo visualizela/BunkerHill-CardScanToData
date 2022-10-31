@@ -7,7 +7,8 @@ import win32api
 from constants import (DATA_DIR, DEFAULT_VERTEX_OFFSET, DEFAULT_STROKE_SIZE, IMAGES_DIR, BOXED_PATH, SLICED_CARDS,
                        MOUSE_BOX_BUFFER_SIZE, MOUSE_BOX_SWITCH_TO_BOX_SPEED, MOUSE_BOX_SWITCH_TO_CURSOR_SPEED,
                        MOUSE_BOX_FLICKER_REDUCTION, MOUSE_BOX_COLOR, DEFAULT_BLANK_BOX_COLOR, VERTEX_WEIGHT_ON_CENTER,
-                       VERTEX_SIZE, SRC_PATH, DRAW_TEXT_BACKGROUND_PADDING, DEFAULT_SHIFT_SIZE, DEFAULT_BORDER_COLOR)
+                       VERTEX_SIZE, SRC_PATH, DRAW_TEXT_BACKGROUND_PADDING, DEFAULT_SHIFT_SIZE, DEFAULT_BORDER_COLOR,
+                       WINDOW_TITLE)
 
 
 class BunkerHillCard:
@@ -427,10 +428,7 @@ class BunkerHillCard:
 
             self.frames_since_cursor_transition += 1
 
-        if self.current_mode == 0 or self.current_mode == 1:
-            cv2.imshow('image', to_show)
-        elif self.current_mode == 2:
-            cv2.imshow('image', to_show)
+        cv2.imshow(WINDOW_TITLE, to_show)
 
     def _draw_box_window(self, box: dict, magnification: float = 2):
         """
@@ -455,7 +453,13 @@ class BunkerHillCard:
 
             cropped = to_show[top_left_y:bottom_right_y, top_left_x:bottom_right_x]
             resized = cv2.resize(cropped, None, fx=magnification, fy=magnification, interpolation=cv2.INTER_LINEAR)
-            cv2.imshow('Box view', resized)
+            cv2.imshow('Preview Box Window', resized)
+
+            # Hide the cursor from window title if user is typing
+            if self.current_mode == 1:
+                cv2.setWindowTitle('Preview Box Window', f'{self.word}')
+            else:
+                cv2.setWindowTitle('Preview Box Window', f'{box["name"]}')
 
         else:
             try:
@@ -482,6 +486,10 @@ class BunkerHillCard:
         """
         Create a box using the current selections. Resets the `curr_box` and `selections` lists after box is created
         """
+
+        # If a box was created in text mode, update the selected box's word to remove the cursor from its name
+        if self.current_mode == 1:
+            self.boxes[self.selected_box_index]["name"] = self.word
 
         # Setup box naming variables
         self.word = f"box{len(self.boxes)}"
@@ -849,6 +857,7 @@ class BunkerHillCard:
                 self.current_image -= 1
                 self.unmodified_current = cv2.imread(self.image_paths[self.current_image])
                 self.shift_image = self.unmodified_current
+                print(f"Image: {self.current_image + 1}/{len(self.image_paths)}")
 
         # right arrow key
         elif key == 2555904:
@@ -858,35 +867,46 @@ class BunkerHillCard:
                 self.current_image += 1
                 self.unmodified_current = cv2.imread(self.image_paths[self.current_image])
                 self.shift_image = self.unmodified_current
+                print(f"Image: {self.current_image + 1}/{len(self.image_paths)}")
 
         # Down key
         elif key == 2621440:
             self.last_button_q = False
             self.last_button_ret = False
-            if self.selected_box_index == -1:
-                self.selected_box_index = len(self.boxes) - 1
-            elif self.selected_box_index > 0:
-                self.selected_box_index -= 1
-            else:
-                self.selected_box_index = len(self.boxes) - 1
+            if len(self.boxes) > 0:
+                if self.selected_box_index == -1:
+                    self.selected_box_index = len(self.boxes) - 1
+                elif self.selected_box_index > 0:
+                    self.selected_box_index -= 1
+                else:
+                    self.selected_box_index = len(self.boxes) - 1
+            print(f"Box: {self.selected_box_index + 1}/{len(self.boxes)}")
 
         # Up key
         elif key == 2490368:
             self.last_button_q = False
             self.last_button_ret = False
-            if self.selected_box_index == -1:
-                self.selected_box_index = len(self.boxes) - 1
+            if len(self.boxes) > 0:
+                if self.selected_box_index == -1:
+                    self.selected_box_index = len(self.boxes) - 1
 
-            if self.selected_box_index < len(self.boxes) - 1:
-                self.selected_box_index += 1
-            else:
-                self.selected_box_index = 0
+                if self.selected_box_index < len(self.boxes) - 1:
+                    self.selected_box_index += 1
+                else:
+                    self.selected_box_index = 0
+            print(f"Box: {self.selected_box_index + 1}/{len(self.boxes)}")
 
         # save and exit
         elif key == 13:
             self.last_button_q = False
             if self.last_button_ret:
-
+                for b in self.boxes:
+                    for i in self.image_paths:
+                        print("hi")
+                # for box in boxes
+                    # for image in images
+                        # make crops
+                return False
             else:
                 self.last_button_ret = True
                 print("Split box selections and quit? Hit enter again to confirm.")
@@ -1025,13 +1045,11 @@ class BunkerHillCard:
         Args:
             path (str): path to census card scan
         """
-        # displaying the image
-        # cv2.imshow('image', self.marked)
 
         # setting mouse handler for the image
         # and calling the click_event() function
-        cv2.namedWindow("image")
-        cv2.setMouseCallback('image', self._click_event)
+        cv2.namedWindow(WINDOW_TITLE)
+        cv2.setMouseCallback(WINDOW_TITLE, self._click_event)
         win32api.SetCursor(None)
         while True:
             self._draw_image()
@@ -1055,6 +1073,8 @@ class BunkerHillCard:
                 self.show_preview_box = not self.show_preview_box
                 continue
 
+            # -------------------------
+
             # if user is in box mode. break out of main loop if _box_mode returns false
             if self.current_mode == 0:
                 if not self._box_mode(k):
@@ -1067,34 +1087,9 @@ class BunkerHillCard:
                     self.boxes[self.selected_box_index]["name"] = word
                 continue
 
+            # If user is in image mode handle image mode inputs
             elif self.current_mode == 2:
                 self._image_mode(k)
-
-
-def split_census_image(path: str) -> None:
-    print(f"displaying: {path}")
-    image = cv2.imread(str(path))
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-    edges = cv2.Canny(image, threshold1=100, threshold2=800)
-
-    ret, thresh = cv2.threshold(gray, 127, 255, cv2.THRESH_BINARY)
-    contours, hierarchy = cv2.findContours(
-        thresh, cv2.RETR_TREE, cv2.CHAIN_APPROX_SIMPLE)
-
-    cv2.imshow('thresh', thresh)
-
-    for c in contours:
-        x, y, w, h = cv2.boundingRect(c)
-        area = w*h
-        if area > 1000:
-            cv2.rectangle(image, (x, y), (x+w, y+h), (255, 0, 0), 2)
-
-    cv2.imshow('edges', edges)
-    cv2.imshow('Original image', image)
-    cv2.imshow('Gray image', gray)
-
-    cv2.waitKey(0)
-    cv2.destroyAllWindows()
 
 
 def initiate_directory() -> bool:

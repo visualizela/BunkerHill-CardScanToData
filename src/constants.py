@@ -14,6 +14,7 @@ DEFAULT_VERTEX_OFFSET = 9              # how large the selection area for vertex
 DEFAULT_STROKE_SIZE = 2                # stroke size for shape borders
 DEFAULT_DISPLAY_STATE = 0              # 0 = show all boxes, 1 = show current only, 2 = hide all
 DEFAULT_BLANK_BOX_COLOR = (0, 0, 0)    # Default color for blank box (used in display mode 1)
+WINDOW_TITLE = "Main View"
 DRAW_TEXT_BACKGROUND_PADDING = 4
 
 # Drawing bounding box around mouse
