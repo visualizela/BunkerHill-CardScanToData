@@ -247,7 +247,8 @@ class BunkerHillCard:
         return image
 
     def _draw_box_text(self, image, box: dict, pos: list, offset: list, font_scale: int, font_thickness: int,
-                       text_color: tuple, font: int = cv2.FONT_HERSHEY_COMPLEX_SMALL, text_color_bg: tuple = None):
+                       text_color: tuple, font: int = cv2.FONT_HERSHEY_COMPLEX_SMALL, text_color_bg: tuple = None
+                       ) -> None:
 
         x, y = pos
         offx, offy = offset
@@ -432,7 +433,7 @@ class BunkerHillCard:
 
         cv2.imshow(WINDOW_TITLE, to_show)
 
-    def _draw_box_window(self, box: dict, magnification: float = 2):
+    def _draw_box_window(self, box: dict, magnification: float = 2) -> None:
         """
         Draw the provided box in a separate window
 
@@ -441,6 +442,7 @@ class BunkerHillCard:
             box (dict): box to draw
             magnification (float): magnification multiple
         """
+
         if self.show_preview_box and box is not None:
             to_show = self.unmodified_current.copy()
 
@@ -543,8 +545,8 @@ class BunkerHillCard:
             event (int): cv2 event constant
             x (int): x location pixel value
             y (int): y location pixel value
-            flags (Any):
-            params (Any):
+            flags (Any): Unused, needed by cv2
+            params (Any): Unused, needed by cv2
         """
 
         if self.cursor_is_box:
@@ -566,7 +568,7 @@ class BunkerHillCard:
             if len(self.selections) == 2:
                 self._create_box()
 
-    def _update_all_vertex(self, box: dict):
+    def _update_all_vertex(self, box: dict) -> None:
         """
         Updates the location of the vertex position for each image using the boxes bounding box
         """
@@ -579,8 +581,17 @@ class BunkerHillCard:
             c["bottom_left_vertex"] = self._find_vertex(box["bottom_left_bb"], box["vertex_offset"], image=c_image)
             c["bottom_right_vertex"] = self._find_vertex(box["bottom_right_bb"], box["vertex_offset"], image=c_image)
 
-    def _update_image_vertex(self, image, image_name, box: dict):
+    def _update_image_vertex(self, image, image_name: str, box: dict) -> None:
+        """
+        Update (re-detect) the vertex for a given box on a specific image
+
+        Args:
+            image : image to update the vertex on
+            image_name (str): name of the image (used to get the correct dict fields)
+            box (dict): box to update the vertex on
+        """
         c = box[image_name]
+
         # recalculate best vertex location
         c["top_left_vertex"] = self._find_vertex(box["top_left_bb"], box["vertex_offset"], image=image)
         c["top_right_vertex"] = self._find_vertex(box["top_right_bb"], box["vertex_offset"], image=image)
@@ -588,6 +599,17 @@ class BunkerHillCard:
         c["bottom_right_vertex"] = self._find_vertex(box["bottom_right_bb"], box["vertex_offset"], image=image)
 
     def _find_vertex(self, bounding_box: tuple, vertex_offset: int, image=None) -> tuple:
+        """
+        Find the vertex given a bounding box and vertex offset
+
+        Args:
+            bounding_box (tuple): (x,y) center of bounding box
+            vertex_offset (int): number of pixels off the center to check (square radius size of bounding box)
+            image (optional): Image to check for vertex on, defaults to the current image if None given.
+
+        Returns:
+            tuple: (x,y) of vertex detexted
+        """
         if image is None:
             image = self.unmodified_current
         top_left = (bounding_box[0] - vertex_offset, bounding_box[1] - vertex_offset)
@@ -625,6 +647,15 @@ class BunkerHillCard:
         return (best_x+bounding_box[0]-vertex_offset, best_y+bounding_box[1]-vertex_offset)
 
     def _calculate_proximity_score(self, unweighted_list: list) -> list:
+        """
+        Calculate the proximity score given a tally list of how many black cubes are in the rows/cols
+
+        Args:
+            unweighted_list (list): row or column list
+
+        Returns:
+            list: row or column list that weights the values based on proximity to other black marks
+        """
         weighted_score = [0 for i in range(len(unweighted_list))]
 
         # Weight so lines next to lines get much better scores
@@ -700,7 +731,19 @@ class BunkerHillCard:
 
         print("selections have been saved")
 
-    def _text_mode(self, key: int) -> None:
+    def _text_mode(self, key: int) -> str:
+        """
+        Text mode lets the user enter a name for the current selected box. This mode is entered automatically
+        when a new box is created. Text mode can also be automatically entered when the user hits the appropriate
+        hotkey.
+
+        Args:
+            key (int): int value of key pressed
+
+        Returns:
+            str: Word the user has typed with the curser character inserted, returns the word without the cursor when
+                 user is finished
+        """
         draw_text = True
 
         # print(f"word: \"{self.word}\" ({len(self.word)}) | cursor location: {self.cursor_index}")
@@ -789,15 +832,16 @@ class BunkerHillCard:
 
         return self.word[:self.cursor_index] + "|" + self.word[self.cursor_index:] if draw_text else None
 
-    def _box_mode(self, key: int):
+    def _box_mode(self, key: int) -> bool:
         """
-        Box mode is the main mode of the program. This lets the user draw boxes around the census card sections
+        Box mode is the main mode of the program. This lets the user draw boxes around the census card sections.
+        When the application is done running this function will return false.
 
         Args:
-            key (int): _description_
+            key (int): int value of key press
 
         Returns:
-            _type_: _description_
+            bool: True if application should keep running, false if program should stop
         """
         if key == 3014656:
             self.last_button_ret = False
@@ -905,17 +949,18 @@ class BunkerHillCard:
                 print("saving boxed zones...")
                 save_success = True
 
+                # Separate file saves by day
                 now = date.today()
                 now_string = now.strftime("%m-%d-%Y")
                 base_dir = os.path.join(SLICED_CARDS, now_string)
 
-                # Separate file saves by day
                 if not os.path.exists(base_dir):
                     os.mkdir(base_dir)
                 else:
                     shutil.rmtree(base_dir)
                     os.mkdir(base_dir)
 
+                # save files per box per image
                 for i, path in enumerate(self.image_paths):
                     c_image = cv2.imread(path)
 
@@ -1009,8 +1054,14 @@ class BunkerHillCard:
                 print("Quit? Hit q again to quit program. Unsaved progress will be lost.")
         return True
 
-    def _image_mode(self, key: int):
+    def _image_mode(self, key: int) -> None:
+        """
+        Handle the user entering image mode. This mode lets the user make adjustments to the current image.
+        The main purpose of this mode is to allow the user to manually line up images to be closer together.
 
+        Args:
+            key (int): key press int
+        """
         # Right key
         if key == 2555904:
             self.image_mode_last_quit = False
