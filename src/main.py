@@ -444,7 +444,10 @@ class BunkerHillCard:
         """
 
         if self.show_preview_box and box is not None:
-            to_show = self.unmodified_current.copy()
+            if self.current_mode != 2:
+                to_show = self.unmodified_current.copy()
+            else:
+                to_show = self.shift_image.copy()
 
             image_name = self.image_names[self.current_image]
             top_left = box[image_name]["top_left_vertex"]
@@ -1111,6 +1114,9 @@ class BunkerHillCard:
             for b in self.boxes:
                 self._update_all_vertex(b)
 
+        if key == ord("h"):
+            self.image_mode_last_quit = False
+            self.help()
         if key == ord("l") or key == 27:
             if self.image_mode_last_quit:
                 self.shift_image = self.unmodified_current.copy()
