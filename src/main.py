@@ -35,15 +35,15 @@ class BunkerHillCard:
     stroke_size = DEFAULT_STROKE_SIZE
 
     # Cursor variables
-    mouse_locations = [[0, 0] for i in range(MOUSE_BOX_BUFFER_SIZE)]
-    frames_since_cursor_transition = 99
-    cursor_is_box = False
+    mouse_locations = [[0, 0] for i in range(MOUSE_BOX_BUFFER_SIZE)]  # Track position of last n mouse locations
+    frames_since_cursor_transition = 99                               # used to track frames since last cursor swap
+    cursor_is_custom = False                                             # used to track which mode the cursor is in
 
     # state flags
     current_mode = 0          # Mode of the application: 0=box_mode, 1=text_mode, 2=image_mode
     display_state = 0         # How to draw the page 1=show boxes, 2=show only current box, 3=hide all
     last_button_q = False     # Flag to track if the last button press was 'q'
-    last_button_ret = False   # Flag to trach if the last button press was 'return'
+    last_button_ret = False   # Flag to track if the last button press was 'return'
     current_image = 0         # Index of current image to show
     show_preview_box = True   # If the preview box window should be displayed
     selected_box_index = -1   # Index of the current selected box
@@ -356,7 +356,7 @@ class BunkerHillCard:
         else:
             to_show = self.unmodified_current.copy()
 
-        if self.cursor_is_box:
+        if self.cursor_is_custom:
             win32api.SetCursor(None)
 
         # Drawing everything
@@ -405,14 +405,14 @@ class BunkerHillCard:
             mouse_speed = np.sqrt(pow(x_avg, 2) + pow(y_avg, 2))
 
             # Check if the mouse is already a box
-            if self.cursor_is_box:
+            if self.cursor_is_custom:
 
                 # check if we should switch to cursor
                 if (mouse_speed > MOUSE_BOX_SWITCH_TO_CURSOR_SPEED
                    and self.frames_since_cursor_transition > MOUSE_BOX_FLICKER_REDUCTION):
                     win32api.SetCursor(None)
                     self.frames_since_cursor_transition = 0
-                    self.cursor_is_box = False
+                    self.cursor_is_custom = False
 
                 # keep cursor as a box
                 else:
@@ -425,7 +425,7 @@ class BunkerHillCard:
                    and self.frames_since_cursor_transition > MOUSE_BOX_FLICKER_REDUCTION):
 
                     self.frames_since_cursor_transition = 0
-                    self.cursor_is_box = True
+                    self.cursor_is_custom = True
 
                     to_show = self._draw_mouse_box(to_show)
 
@@ -552,7 +552,7 @@ class BunkerHillCard:
             params (Any): Unused, needed by cv2
         """
 
-        if self.cursor_is_box:
+        if self.cursor_is_custom:
             win32api.SetCursor(None)
         # Update list of recent mouse locations
         self.mouse_locations.append([x, y])
@@ -906,7 +906,7 @@ class BunkerHillCard:
                 self.current_image -= 1
                 self.unmodified_current = cv2.imread(self.image_paths[self.current_image])
                 self.shift_image = self.unmodified_current
-                print(f"Image: {self.current_image + 1}/{len(self.image_paths)}")
+                cv2.setWindowTitle(WINDOW_TITLE, f'{WINDOW_TITLE} ({self.current_image + 1}/{len(self.image_paths)})')
 
         # right arrow key
         elif key == 2555904:
@@ -916,7 +916,7 @@ class BunkerHillCard:
                 self.current_image += 1
                 self.unmodified_current = cv2.imread(self.image_paths[self.current_image])
                 self.shift_image = self.unmodified_current
-                print(f"Image: {self.current_image + 1}/{len(self.image_paths)}")
+                cv2.setWindowTitle(WINDOW_TITLE, f'{WINDOW_TITLE} ({self.current_image + 1}/{len(self.image_paths)})')
 
         # Down key
         elif key == 2621440:
@@ -1150,6 +1150,7 @@ class BunkerHillCard:
         # and calling the click_event() function
         cv2.namedWindow(WINDOW_TITLE)
         cv2.setMouseCallback(WINDOW_TITLE, self._click_event)
+        cv2.setWindowTitle(WINDOW_TITLE, f'{WINDOW_TITLE} ({self.current_image + 1}/{len(self.image_paths)})')
         win32api.SetCursor(None)
         while True:
             self._draw_image()
@@ -1162,7 +1163,7 @@ class BunkerHillCard:
             # update mouse position
             self.mouse_locations.append(self.mouse_locations[-1])
             self.mouse_locations.pop(0)
-            if self.cursor_is_box:
+            if self.cursor_is_custom:
                 win32api.SetCursor(None)
 
             k = cv2.waitKeyEx(1)
