@@ -1,10 +1,9 @@
-import cv2
 import os
-import json
 import random
-import math
-import time
+
 from abc import ABC, abstractmethod
+
+import cv2
 import pytesseract
 from pytesseract import Output
 
@@ -49,7 +48,9 @@ class card_analysis(ABC):
         self.detect_text_on_current_image()
         self.detect_boxes_on_current_image()
 
-    def get_new_unique_color(self, colors: list, desired_distance: int, tries: int = 1_000) -> tuple:
+    def get_new_unique_color(
+        self, colors: list, desired_distance: int, tries: int = 1_000
+    ) -> tuple[tuple[int, int, int], int]:
         """
         Given a list of all used colors, and a desired distance of that color to all others,
         return a new color. If a unique color cannot be generated that is at least that distance
@@ -60,9 +61,8 @@ class card_analysis(ABC):
             desired_distance (int): radial value from all other colors
 
         Returns:
-            tuple: unique color
-            int: desired distance value that was set when the function returned (in case it had to
-                 check lower values)
+            tuple[tuple[int, int, int], int]: unique color and desired distance value that was set when the function
+                returned (in case it had to check lower values).
         """
         if desired_distance == 0:
             print("Error: cannot have desired distance = 0")
@@ -71,7 +71,6 @@ class card_analysis(ABC):
         new_dist = desired_distance
         desired_color = None
         for i in range(tries):
-
             # make new color
             new_blue = random.randint(0, 255)
             new_green = random.randint(0, 255)
@@ -81,9 +80,9 @@ class card_analysis(ABC):
             outside_range = True
             for c in colors:
 
-                blue_diff = abs(new_blue-c[0])
-                green_diff = abs(new_green-c[1])
-                red_diff = abs(new_red-c[2])
+                blue_diff = abs(new_blue - c[0])
+                green_diff = abs(new_green - c[1])
+                red_diff = abs(new_red - c[2])
 
                 if blue_diff < desired_distance and green_diff < desired_distance and red_diff < desired_distance:
                     outside_range = False
@@ -96,7 +95,7 @@ class card_analysis(ABC):
 
         # Reduce the desired distance if we cannot easily get a color that is different enough
         if desired_color is None:
-            new_dist = max(0, desired_distance-max(1, int(desired_distance/25)))
+            new_dist = max(0, desired_distance - max(1, int(desired_distance / 25)))
             return self.get_new_unique_color(colors, new_dist, tries)
         else:
             return desired_color, desired_distance
@@ -113,9 +112,9 @@ class card_analysis(ABC):
         Args:
             image (_type_): binary(threshold) image passed in
             hole_size (int, optional): Largest number of pixels that can be missing between
-            two filled pixels. Defaults to 2.
+                two filled pixels. Defaults to 2.
             min_line_len (int, optional): Number of pixels in a row before considering hole
-            plugging (prevents non-box shapes from being plugged)
+                plugging (prevents non-box shapes from being plugged)
         """
         plugged = image.copy()
 
@@ -123,7 +122,6 @@ class card_analysis(ABC):
         height = image.shape[0]
         for row in range(height):
             for col in range(width):
-
                 # How far in an adjacent direction a pixel is filled
                 up_detected = 0
                 down_detected = 0
@@ -137,8 +135,7 @@ class card_analysis(ABC):
 
                 # only plug holes if on solid color
                 if image[row][col] == 255:
-                    for i in range(hole_size+1 + min_line_len):
-
+                    for i in range(hole_size + 1 + min_line_len):
                         offset = i + 1
 
                         up = row - offset
@@ -184,13 +181,13 @@ class card_analysis(ABC):
 
                     # fill gaps
                     for j in range(down_detected):
-                        plugged[row+j][col] = 255
+                        plugged[row + j][col] = 255
                     for j in range(up_detected):
-                        plugged[row-j][col] = 255
+                        plugged[row - j][col] = 255
                     for j in range(left_detected):
-                        plugged[row][col-j] = 255
+                        plugged[row][col - j] = 255
                     for j in range(right_detected):
-                        plugged[row][col+j] = 255
+                        plugged[row][col + j] = 255
 
         return plugged
 
@@ -223,7 +220,7 @@ class card_analysis(ABC):
         cv2.imshow("Greyed", to_show)
         return
 
-    # TODO: make this an iterative soultion, recursion is dangerous (max depth exceeded fast)
+    # TODO: make this an iterative solution, recursion is dangerous (max depth exceeded fast)
     def recursive_coloring(self, curr_color: tuple, pos: tuple, image) -> list:
         """
         Given a pixel, recursively get all pixels that are connected to it
@@ -260,8 +257,9 @@ class card_analysis(ABC):
         return image
 
     def detect_text_on_current_image(self) -> list:
-
-        image_text_data = pytesseract.image_to_data(self.current_image, output_type=Output.DICT, config='--psm 3 --oem 1')
+        image_text_data = pytesseract.image_to_data(
+            self.current_image, output_type=Output.DICT, config='--psm 3 --oem 1'
+        )
         LINE_DIST = 4
         n_boxes = len(image_text_data['text'])
         for i in range(n_boxes):
@@ -270,17 +268,22 @@ class card_analysis(ABC):
             if int(image_text_data['conf'][i]) > 1 and len(c_text.replace(" ", "")) > 0:
                 tmp = image_text_data['conf'][i]
                 print(f"{c_text} | conf: {tmp}")
-                (x, y, w, h) = (image_text_data['left'][i], image_text_data['top'][i], image_text_data['width'][i], image_text_data['height'][i])
+                (x, y, w, h) = (
+                    image_text_data['left'][i],
+                    image_text_data['top'][i],
+                    image_text_data['width'][i],
+                    image_text_data['height'][i],
+                )
 
                 added = False
-                mean_line_position = (y+h)/2
+                mean_line_position = (y + h) / 2
                 for ln in self.detected_text:
-                    curr_mean_line_position = (ln["y"] + ln["height"])/2
+                    curr_mean_line_position = (ln["y"] + ln["height"]) / 2
                     if abs(curr_mean_line_position - mean_line_position) < LINE_DIST:
                         new_x = min(ln["x"], x)
                         new_y = min(ln["y"], y)
                         new_height = max(h, ln["height"])
-                        gap = ln["x"] - (w+x) if ln["x"] > x else x - (ln["width"]+ln["x"])
+                        gap = ln["x"] - (w + x) if ln["x"] > x else x - (ln["width"] + ln["x"])
                         new_width = w + gap + ln["width"]
                         ln["text"] += " " + c_text
                         ln["words"].append(c_text)
@@ -290,14 +293,7 @@ class card_analysis(ABC):
                         ln["height"] = new_height
                         added = True
                 if not added:
-                    new_line = {
-                        "words": [c_text],
-                        "text": c_text,
-                        "x": x,
-                        "y": y,
-                        "width": w,
-                        "height": h
-                    }
+                    new_line = {"words": [c_text], "text": c_text, "x": x, "y": y, "width": w, "height": h}
                     self.detected_text.append(new_line)
 
     def draw_boxes_around_text(self) -> None:
@@ -306,11 +302,13 @@ class card_analysis(ABC):
         # draw boxes and print words
         for line in self.detected_text:
             print(line)
-            image_copy = cv2.rectangle(image_copy,
-                                       (line["x"], line["y"]),
-                                       (line["x"] + line["width"], line["y"] + line["height"]),
-                                       (0, 255, 0),
-                                       2)
+            image_copy = cv2.rectangle(
+                image_copy,
+                (line["x"], line["y"]),
+                (line["x"] + line["width"], line["y"] + line["height"]),
+                (0, 255, 0),
+                2,
+            )
 
         resized = cv2.resize(image_copy, None, fx=3, fy=3, interpolation=cv2.INTER_LINEAR)
 
@@ -324,12 +322,13 @@ class card_analysis(ABC):
 
 
 class race_of_household(card_analysis):
-
     def analyze_card(self) -> dict:
         print("beep boop running analysis", self.box_name)
 
 
 if __name__ == "__main__":
-    tmp = race_of_household("C:\\Users\\Admin\\Desktop\\USC\\Internships\\Library Data Visualization\\BunkerHill-CardScanToData\\data\\sliced_cards\\11-02-2022\\race_of_household")
+    tmp = race_of_household(
+        "C:\\Users\\Admin\\Desktop\\USC\\Internships\\Library Data Visualization\\BunkerHill-CardScanToData\\data\\sliced_cards\\11-02-2022\\race_of_household"
+    )
     tmp.analyze_card()
     tmp.draw_boxes_around_text()
