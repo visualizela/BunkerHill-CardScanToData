@@ -223,7 +223,7 @@ class card_analysis(ABC):
         cv2.imshow("Greyed", to_show)
         return
 
-    TODO: make this an iterative soultion, recursion is dangerous (max depth exceeded fast)
+    # TODO: make this an iterative soultion, recursion is dangerous (max depth exceeded fast)
     def recursive_coloring(self, curr_color: tuple, pos: tuple, image) -> list:
         """
         Given a pixel, recursively get all pixels that are connected to it
