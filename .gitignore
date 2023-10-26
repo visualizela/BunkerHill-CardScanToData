@@ -131,3 +131,11 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+deprecated/*
+deskewed/*
+deskewed2/*
+edgecut3/*
+edgecut4/*
+matched/*
+resized_images/*

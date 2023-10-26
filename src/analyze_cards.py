@@ -9,7 +9,7 @@ import cv2
 import pytesseract
 from pytesseract import Output
 
-pytesseract.pytesseract.tesseract_cmd = 'C:\\Program Files\\Tesseract-OCR\\tesseract.exe'
+# pytesseract.pytesseract.tesseract_cmd = '/opt/homebrew/bin/tesseract'
 
 
 class card_analysis(ABC):
@@ -296,7 +296,7 @@ class race_of_household(card_analysis):
 
 if __name__ == "__main__":
     tmp = race_of_household(
-        "C:\\Users\\Admin\\Desktop\\USC\\Internships\\Library Data Visualization\\BunkerHill-CardScanToData\\data\\sliced_cards\\11-02-2022\\race_of_household"
+        "/Users/xieewenz/BunkerHill-CardScanToData/data/sliced_cards/10-10-2023/race_of_household/"
     )
     tmp.analyze_card()
     tmp.draw_boxes_around_text()

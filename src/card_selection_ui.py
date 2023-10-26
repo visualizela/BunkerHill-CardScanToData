@@ -5,7 +5,6 @@ from datetime import date
 
 import cv2
 import numpy as np
-import win32api
 
 from src.constants import (
     BOXED_PATH,
@@ -364,7 +363,7 @@ class BunkerHillCard:
         Args:
             image (np.ndarray): image to draw the mouse on
         """
-        win32api.SetCursor(None)
+
         mouse = self.mouse_locations[-1]
 
         # Draw mouse bounding box in box mode
@@ -426,9 +425,6 @@ class BunkerHillCard:
         else:
             to_show = self.unmodified_current.copy()
 
-        if self.cursor_is_custom:
-            win32api.SetCursor(None)
-
         # Drawing everything
         if self.display_state % 3 == 0:
             # Draw completed boxes
@@ -479,7 +475,6 @@ class BunkerHillCard:
                     mouse_speed > MOUSE_BOX_SWITCH_TO_CURSOR_SPEED
                     and self.frames_since_cursor_transition > MOUSE_BOX_FLICKER_REDUCTION
                 ):
-                    win32api.SetCursor(None)
                     self.frames_since_cursor_transition = 0
                     self.cursor_is_custom = False
 
@@ -622,8 +617,6 @@ class BunkerHillCard:
             params (Any): Unused, needed by cv2
         """
 
-        if self.cursor_is_custom:
-            win32api.SetCursor(None)
         # Update list of recent mouse locations
         self.mouse_locations.append([x, y])
         self.mouse_locations.pop(0)
@@ -888,13 +881,13 @@ class BunkerHillCard:
             self.cursor_index = 0
 
         # move cursor right
-        elif key == 2555904:
+        elif key == 63235 or key == 2555904:
             self.started_typing = True
             if self.cursor_index < len(self.word):
                 self.cursor_index += 1
 
         # move cursor left
-        elif key == 2424832:
+        elif key == 63234 or key == 2424832:
             self.started_typing = True
             if self.cursor_index > 0:
                 self.cursor_index -= 1
@@ -967,7 +960,7 @@ class BunkerHillCard:
                 self._update_all_vertex(b)
 
         # left arrow key
-        elif key == 2424832:
+        elif key == 63234 or key == 2424832:
             self.last_button_q = False
             self.last_button_ret = False
             if self.current_image > 0:
@@ -977,7 +970,7 @@ class BunkerHillCard:
                 cv2.setWindowTitle(WINDOW_TITLE, f'{WINDOW_TITLE} ({self.current_image + 1}/{len(self.image_paths)})')
 
         # right arrow key
-        elif key == 2555904:
+        elif key == 63235 or key == 2555904:
             self.last_button_q = False
             self.last_button_ret = False
             if self.current_image < len(self.image_paths) - 1:
@@ -987,7 +980,7 @@ class BunkerHillCard:
                 cv2.setWindowTitle(WINDOW_TITLE, f'{WINDOW_TITLE} ({self.current_image + 1}/{len(self.image_paths)})')
 
         # Down key
-        elif key == 2621440:
+        elif key == 63233 or key == 2621440:
             self.last_button_q = False
             self.last_button_ret = False
             if len(self.boxes) > 0:
@@ -1000,7 +993,7 @@ class BunkerHillCard:
             print(f"Box: {self.selected_box_index + 1}/{len(self.boxes)}")
 
         # Up key
-        elif key == 2490368:
+        elif key == 63232 or key == 2490368:
             self.last_button_q = False
             self.last_button_ret = False
             if len(self.boxes) > 0:
@@ -1137,7 +1130,9 @@ class BunkerHillCard:
             key (int): key press int
         """
         # Right key
-        if key == 2555904:
+        if key != -1:
+            print(f"key: {key}")
+        if key == 63235 or key == 2555904:
             self.image_mode_last_quit = False
             self.shift_image = cv2.copyMakeBorder(
                 self.shift_image, 0, 0, self.shift_size, 0, cv2.BORDER_CONSTANT, value=DEFAULT_BORDER_COLOR
@@ -1145,7 +1140,7 @@ class BunkerHillCard:
             for b in self.boxes:
                 self._update_image_vertex(self.shift_image, self.image_names[self.current_image], b)
         # Down key
-        if key == 2621440:
+        if key == 63233 or key == 2621440:
             self.image_mode_last_quit = False
             self.shift_image = cv2.copyMakeBorder(
                 self.shift_image, self.shift_size, 0, 0, 0, cv2.BORDER_CONSTANT, value=DEFAULT_BORDER_COLOR
@@ -1153,7 +1148,7 @@ class BunkerHillCard:
             for b in self.boxes:
                 self._update_image_vertex(self.shift_image, self.image_names[self.current_image], b)
         # Up key
-        if key == 2490368:
+        if key == 63232 or key == 2490368:
             self.image_mode_last_quit = False
             self.shift_image = self.shift_image[self.shift_size :, :]
 
@@ -1161,7 +1156,7 @@ class BunkerHillCard:
                 self._update_image_vertex(self.shift_image, self.image_names[self.current_image], b)
 
         # Left key
-        if key == 2424832:
+        if key == 63234 or key == 2424832:
             self.image_mode_last_quit = False
             self.shift_image = self.shift_image[:, self.shift_size :]
 
@@ -1224,7 +1219,6 @@ class BunkerHillCard:
         cv2.namedWindow(WINDOW_TITLE)
         cv2.setMouseCallback(WINDOW_TITLE, self._click_event)
         cv2.setWindowTitle(WINDOW_TITLE, f'{WINDOW_TITLE} ({self.current_image + 1}/{len(self.image_paths)})')
-        win32api.SetCursor(None)
         while True:
             self._draw_image()
 
@@ -1236,8 +1230,6 @@ class BunkerHillCard:
             # update mouse position
             self.mouse_locations.append(self.mouse_locations[-1])
             self.mouse_locations.pop(0)
-            if self.cursor_is_custom:
-                win32api.SetCursor(None)
 
             k = cv2.waitKeyEx(1)
 
