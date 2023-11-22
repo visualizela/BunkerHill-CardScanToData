@@ -373,8 +373,8 @@ class BunkerHillCard:
             cv2.rectangle(image, box_draw_tl, box_draw_br, MOUSE_BOX_COLOR, self.stroke_size)
 
             # draw vertex
-            detected_vertex = self._find_vertex((mouse[0], mouse[1]), self.vertex_offset)
-            cv2.circle(image, (detected_vertex[0], detected_vertex[1]), radius=3, color=(0, 0, 255), thickness=2)
+            # detected_vertex = self._find_vertex((mouse[0], mouse[1]), self.vertex_offset)
+            # cv2.circle(image, (detected_vertex[0], detected_vertex[1]), radius=3, color=(0, 0, 255), thickness=2)
 
         # Draw character if mouse in text mode
         elif self.current_mode == 1:
@@ -1256,4 +1256,115 @@ class BunkerHillCard:
             # If user is in image mode handle image mode inputs
             elif self.current_mode == 2:
                 self._image_mode(k)
+
+    def part_selection_loop(self, split_images_path: str, subdivs_folder: str, subdivs_json_folder: str) -> None:
+        """
+        Allows the user to select subdivisions on the split images for better processing.
+
+        Args:
+            split_images_path (str): path to the folder containing the split images
+            subdivs_folder (str): path to the folder where the subdivided images will be saved
+            subdivs_json_folder (str): path to the folder where the JSON files for the boxes will be saved
+        """
+        # Load the split images
+        self.image_paths = [os.path.join(split_images_path, f) for f in os.listdir(split_images_path) if f.endswith('.jpg')]
+        self.image_names = [os.path.splitext(f)[0] for f in os.listdir(split_images_path) if f.endswith('.jpg')]
+        self.current_image = 0
+        self.unmodified_current = cv2.imread(self.image_paths[self.current_image])
+        self.shift_image = self.unmodified_current
+
+        # Create the output folders if they don't exist
+        os.makedirs(subdivs_folder, exist_ok=True)
+        os.makedirs(subdivs_json_folder, exist_ok=True)
+
+        # Set up the mouse callback function and window title
+        cv2.namedWindow(WINDOW_TITLE)
+        cv2.setMouseCallback(WINDOW_TITLE, self._click_event)
+        cv2.setWindowTitle(WINDOW_TITLE, f'{WINDOW_TITLE} ({self.current_image + 1}/{len(self.image_paths)})')
+
+        # Main loop
+        while True:
+            self._draw_image()
+
+            if len(self.boxes) > 0:
+                self._draw_box_window(self.boxes[self.selected_box_index], 1.8)
+            else:
+                self._draw_box_window(None, 2)
+
+            # Update mouse position
+            self.mouse_locations.append(self.mouse_locations[-1])
+            self.mouse_locations.pop(0)
+
+            k = cv2.waitKeyEx(1)
+
+            # Handle user input based on the current mode
+            if self.current_mode == 0:
+                if not self._box_mode(k):
+                    break
+            elif self.current_mode == 1:
+                word = self._text_mode(k)
+                if word:
+                    self.boxes[self.selected_box_index]["name"] = word
+            elif self.current_mode == 2:
+                self._image_mode(k)
+
+            # Save the subdivisions and boxes when the user presses 's'
+            if k == ord('s'):
+                self._save_subdivisions_and_boxes(subdivs_folder, subdivs_json_folder)
+
+    
+    def part_selection_loop(self, split_images_path: str, subdivs_folder: str, subdivs_json_folder: str) -> None:
+        """
+        Allows the user to select subdivisions on the split images for better processing.
+
+        Args:
+            split_images_path (str): path to the folder containing the split images
+            subdivs_folder (str): path to the folder where the subdivided images will be saved
+            subdivs_json_folder (str): path to the folder where the JSON files for the boxes will be saved
+        """
+        # Load the split images
+        self.image_paths = [os.path.join(split_images_path, f) for f in os.listdir(split_images_path) if f.endswith('.jpg')]
+        self.image_names = [os.path.splitext(f)[0] for f in os.listdir(split_images_path) if f.endswith('.jpg')]
+        self.current_image = 0
+        self.unmodified_current = cv2.imread(self.image_paths[self.current_image])
+        self.shift_image = self.unmodified_current
+
+        # Create the output folders if they don't exist
+        os.makedirs(subdivs_folder, exist_ok=True)
+        os.makedirs(subdivs_json_folder, exist_ok=True)
+
+        # Set up the mouse callback function and window title
+        cv2.namedWindow(WINDOW_TITLE)
+        cv2.setMouseCallback(WINDOW_TITLE, self._click_event)
+        cv2.setWindowTitle(WINDOW_TITLE, f'{WINDOW_TITLE} ({self.current_image + 1}/{len(self.image_paths)})')
+
+        # Main loop
+        while True:
+            self._draw_image()
+
+            if len(self.boxes) > 0:
+                self._draw_box_window(self.boxes[self.selected_box_index], 1.8)
+            else:
+                self._draw_box_window(None, 2)
+
+            # Update mouse position
+            self.mouse_locations.append(self.mouse_locations[-1])
+            self.mouse_locations.pop(0)
+
+            k = cv2.waitKeyEx(1)
+
+            # Handle user input based on the current mode
+            if self.current_mode == 0:
+                if not self._box_mode(k):
+                    break
+            elif self.current_mode == 1:
+                word = self._text_mode(k)
+                if word:
+                    self.boxes[self.selected_box_index]["name"] = word
+            elif self.current_mode == 2:
+                self._image_mode(k)
+
+            # Save the subdivisions and boxes when the user presses 's'
+            if k == ord('s'):
+                self._save_subdivisions_and_boxes(subdivs_folder, subdivs_json_folder)
 
