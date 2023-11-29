@@ -1,5 +1,7 @@
 import os
 
+import argparse
+
 from src.constants import BOXED_PATH, DATA_DIR, IMAGES_DIR, SLICED_CARDS
 from src.card_selection_ui import BunkerHillCard
 
@@ -34,10 +36,10 @@ def initiate_directory() -> bool:
     return ready_to_run
 
 
-def main():
+def main(args):
     if initiate_directory():
-        print(f"Image location: {IMAGES_DIR}")
-        bhc = BunkerHillCard(IMAGES_DIR)
+        print(f"Image location: {args.images_dir}")
+        bhc = BunkerHillCard(args.images_dir, args.no_find_vertex, save_dir=args.save_dir)
         bhc.help()
         bhc.main_selection_loop()
     else:
@@ -45,4 +47,9 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description='Process command line arguments.')
+    parser.add_argument('--images_dir', type=str, default=IMAGES_DIR, help='Path to the images directory')
+    parser.add_argument('--save_dir', type=str, default=None, help='Sliced images save to')
+    parser.add_argument('--no_find_vertex', type=bool, default=False, help='Don\'t search for verticies')
+    args = parser.parse_args()
+    main(args)

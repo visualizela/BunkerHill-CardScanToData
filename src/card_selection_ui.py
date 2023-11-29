@@ -9,6 +9,7 @@ from tqdm import tqdm
 import cv2
 import numpy as np
 from wand.image import Image
+from wand.exceptions import ImageError
 
 from src.constants import (
     BOXED_PATH,
@@ -85,13 +86,18 @@ class BunkerHillCard:
     shift_image = None               # Displayed image for shift mode before it is saved
     image_mode_last_quit = False     # Confirm quit for image mode
 
-    def __init__(self, path: str) -> None:
+    no_find_vertex = False
+
+    def __init__(self, path: str, no_find_vertex=False, save_dir=None) -> None:
         """
         Initiate class variables
 
         Args:
             path (str): path to image directory
         """
+        self.save_dir = save_dir
+        if self.save_dir is not None:
+            os.makedirs(self.save_dir, exist_ok=True)
         self.image_names = [f for f in os.listdir(path) if f.endswith(('.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif'))]
         if len(self.image_names) > 0:
             for n in self.image_names:
@@ -106,6 +112,8 @@ class BunkerHillCard:
             metadata = {}
             metadata["path"] = os.path.abspath(path)
             self.box_json["metadata"] = metadata
+
+            self.no_find_vertex = no_find_vertex
 
             # initiate empty selection box
             self._initiate_box()
@@ -558,14 +566,20 @@ class BunkerHillCard:
         print(f"box{len(self.boxes)} selection: ({x}, {y})")
         anchor_image_path = self._create_anchor_image((x,y), self.vertex_offset, self.unmodified_current)
         self.selections.append((x, y, anchor_image_path))
-        vertex = self._find_vertex((x, y), self.vertex_offset, self.unmodified_current, anchor_image_path)
+        if self.no_find_vertex:
+            vertex = (x,y)
+        else:
+            vertex = self._find_vertex((x, y), self.vertex_offset, self.unmodified_current, anchor_image_path)
         self.selection_vertexes.append(vertex)
 
     def _re_find_selection_vertexes(self):
         self.selection_vertexes = []
         for s in self.selections:
             x,y,anchor_image_path = s
-            vertex = self._find_vertex((x, y), self.vertex_offset, self.unmodified_current, anchor_image_path)
+            if self.no_find_vertex:
+                vertex = (x,y)
+            else:
+                vertex = self._find_vertex((x, y), self.vertex_offset, self.unmodified_current, anchor_image_path)
             self.selection_vertexes.append(vertex)
     
     def _create_box(self) -> None:
@@ -658,16 +672,22 @@ class BunkerHillCard:
         c = box[name]
         c_image = cv2.imread(self.image_paths[image_index])
         # recalculate best vertex location
-        c["top_left_vertex"] = self._find_vertex(box["top_left_bb"], box["vertex_offset"], original_image=c_image, reference_image=box["top_left_ref_img_path"])
-        c["bottom_right_vertex"] = self._find_vertex(box["bottom_right_bb"], box["vertex_offset"], original_image=c_image, reference_image=box["bottom_right_ref_img_path"])
-        c["top_right_vertex"] = c["top_left_vertex"][0], c["bottom_right_vertex"][1]
-        c["bottom_left_vertex"] = c["bottom_right_vertex"][0], c["top_left_vertex"][1]
+        if self.no_find_vertex:
+            c["top_left_vertex"] = box["top_left_bb"]
+            c["bottom_right_vertex"] = box["bottom_right_bb"]
+            c["top_right_vertex"] = c["top_left_vertex"][0], c["bottom_right_vertex"][1]
+            c["bottom_left_vertex"] = c["bottom_right_vertex"][0], c["top_left_vertex"][1]
+        else:
+            c["top_left_vertex"] = self._find_vertex(box["top_left_bb"], box["vertex_offset"], original_image=c_image, reference_image=box["top_left_ref_img_path"])
+            c["bottom_right_vertex"] = self._find_vertex(box["bottom_right_bb"], box["vertex_offset"], original_image=c_image, reference_image=box["bottom_right_ref_img_path"])
+            c["top_right_vertex"] = c["top_left_vertex"][0], c["bottom_right_vertex"][1]
+            c["bottom_left_vertex"] = c["bottom_right_vertex"][0], c["top_left_vertex"][1]
     
     def _update_all_vertex(self, box: dict) -> None:
         """
         Updates the location of the vertex position for each image using the boxes bounding box
         """
-        for index, name in enumerate(self.image_names):
+        for index, name in enumerate(tqdm(self.image_names)):
             self._update_vertex_for_image(box, index)
     
 
@@ -683,10 +703,16 @@ class BunkerHillCard:
         c = box[image_name]
 
         # recalculate best vertex location
-        c["top_left_vertex"] = self._find_vertex(box["top_left_bb"], box["vertex_offset"], original_image=image, reference_image=box["top_left_ref_img_path"])
-        c["bottom_right_vertex"] = self._find_vertex(box["bottom_right_bb"], box["vertex_offset"], original_image=image, reference_image=box["bottom_right_ref_img_path"])
-        c["top_right_vertex"] = c["top_left_vertex"][0], c["bottom_right_vertex"][1]
-        c["bottom_left_vertex"] = c["bottom_right_vertex"][0], c["top_left_vertex"][1]
+        if self.no_find_vertex:
+            c["top_left_vertex"] = box["top_left_bb"]
+            c["bottom_right_vertex"] = box["bottom_right_bb"]
+            c["top_right_vertex"] = c["top_left_vertex"][0], c["bottom_right_vertex"][1]
+            c["bottom_left_vertex"] = c["bottom_right_vertex"][0], c["top_left_vertex"][1]
+        else:
+            c["top_left_vertex"] = self._find_vertex(box["top_left_bb"], box["vertex_offset"], original_image=image, reference_image=box["top_left_ref_img_path"])
+            c["bottom_right_vertex"] = self._find_vertex(box["bottom_right_bb"], box["vertex_offset"], original_image=image, reference_image=box["bottom_right_ref_img_path"])
+            c["top_right_vertex"] = c["top_left_vertex"][0], c["bottom_right_vertex"][1]
+            c["bottom_left_vertex"] = c["bottom_right_vertex"][0], c["top_left_vertex"][1]
 
     def _create_anchor_image(self, bounding_box: Tuple[int,int], vertex_offset: int, anchor_image: np.array):
         anchor_image_height, anchor_image_width = anchor_image.shape[:2]
@@ -721,13 +747,23 @@ class BunkerHillCard:
         print(search_region_top_left, search_region_bottom_right)
 
         # Crop the larger image to the search region
-        search_region = wand_image[search_region_top_left[0]:search_region_bottom_right[0], search_region_top_left[1]:search_region_bottom_right[1]]
+        try:
+            search_region = wand_image[search_region_top_left[0]:search_region_bottom_right[0], search_region_top_left[1]:search_region_bottom_right[1]]
+        except IndexError:
+            # If IndexError occurs, adjust the search region to fit within the image boundaries
+            search_region_top_left = (max(0, min(search_region_top_left[0], wand_image.width - 12)), max(0, min(search_region_top_left[1], wand_image.height - 12)))
+            search_region_bottom_right = (max(0, min(search_region_bottom_right[0], wand_image.width)), max(0, min(search_region_bottom_right[1], wand_image.height)))
+            search_region = wand_image[search_region_top_left[0]:search_region_bottom_right[0], search_region_top_left[1]:search_region_bottom_right[1]]
+            
 
         # Use Wand's similarity function to find the best match
-        location, diff = search_region.similarity(anchor_image, threshold=0.0)
-
-        vertex_x = location['left'] + search_region_top_left[0] + vertex_offset
-        vertex_y = location['top'] + search_region_top_left[1] + vertex_offset
+        try:
+            location, diff = search_region.similarity(anchor_image, threshold=0.0)
+            vertex_x = location['left'] + search_region_top_left[0] + vertex_offset
+            vertex_y = location['top'] + search_region_top_left[1] + vertex_offset
+        except ImageError:
+            vertex_x = max(0, min(bounding_box[0], wand_image.width))
+            vertex_y = max(0, min(bounding_box[1], wand_image.height))
 
         print(vertex_x, vertex_y)
 
@@ -1048,9 +1084,12 @@ class BunkerHillCard:
             if self.last_button_ret:
                 print("saving boxed zones...")
                 # Separate file saves by day
-                now = date.today()
-                now_string = now.strftime("%m-%d-%Y")
-                base_dir = os.path.join(SLICED_CARDS, now_string)
+                if self.save_dir is None:
+                    now = date.today()
+                    now_string = now.strftime("%m-%d-%Y")
+                    base_dir = os.path.join(SLICED_CARDS, now_string)
+                else:
+                    base_dir = self.save_dir
                 self._save_outline(base_dir)
 
                 for b in tqdm(self.boxes):
@@ -1087,7 +1126,10 @@ class BunkerHillCard:
                         if not os.path.exists(image_dir):
                             os.mkdir(image_dir)
                         save_path = os.path.join(image_dir, image_name)
-                        cv2.imwrite(save_path, cropped)
+                        try:
+                            cv2.imwrite(save_path, cropped)
+                        except cv2.error:
+                            pass
                         if not os.path.isfile(f"{save_path}"):
                             print("Error: failed to save image ({save_path})")
                             save_success = False
