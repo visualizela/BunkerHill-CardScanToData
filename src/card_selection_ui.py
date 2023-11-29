@@ -862,6 +862,17 @@ class BunkerHillCard:
 
         print("selections have been saved")
 
+    def _load_outline(self, path=None):
+        """
+        Load the selections json to continue from a previous session
+        """
+        load_path = path or BOXED_PATH
+
+        with open(os.path.join(load_path, "boxes.json"), 'r', encoding='utf-8') as f:
+            self.box_json = json.load(f)
+
+        print("selections have been loaded")
+
     def _text_mode(self, key: int) -> str:
         """
         Text mode lets the user enter a name for the current selected box. This mode is entered automatically
@@ -1090,7 +1101,7 @@ class BunkerHillCard:
                     base_dir = os.path.join(SLICED_CARDS, now_string)
                 else:
                     base_dir = self.save_dir
-                self._save_outline(base_dir)
+                
 
                 for b in tqdm(self.boxes):
                     self._update_all_vertex(b)
@@ -1131,9 +1142,11 @@ class BunkerHillCard:
                         except cv2.error:
                             pass
                         if not os.path.isfile(f"{save_path}"):
-                            print("Error: failed to save image ({save_path})")
+                            print(f"Error: failed to save image ({save_path})")
                             save_success = False
 
+                self._save_outline(base_dir)
+                
                 if save_success:
                     print("Save successful!")
                 else:
