@@ -4,8 +4,9 @@ import shutil
 from datetime import date
 from typing import Tuple
 import uuid
-from tqdm import tqdm
+from concurrent.futures import ProcessPoolExecutor
 
+from tqdm import tqdm
 import cv2
 import numpy as np
 from wand.image import Image
@@ -117,6 +118,9 @@ class BunkerHillCard:
 
             # initiate empty selection box
             self._initiate_box()
+
+            if os.path.exists(os.path.join(save_dir, "boxes.json")):
+                self._load_outline(path=save_dir)
         else:
             raise RuntimeError(f"Error: no images found at {IMAGES_DIR}")
 
@@ -667,10 +671,16 @@ class BunkerHillCard:
             if len(self.selections) == 2:
                 self._create_box()
 
-    def _update_vertex_for_image(self, box: dict, image_index: str):
-        name = self.image_names[image_index]
+    def _update_vertex_for_image(self, box: dict, image_index: int, image_paths=None, image_names=None):
+        if image_names:
+            name = image_names[image_index]
+        else:
+            name = self.image_names[image_index]
         c = box[name]
-        c_image = cv2.imread(self.image_paths[image_index])
+        if image_paths:
+            c_image = cv2.imread(image_paths[image_index])
+        else:
+            c_image = cv2.imread(self.image_paths[image_index])
         # recalculate best vertex location
         if self.no_find_vertex:
             c["top_left_vertex"] = box["top_left_bb"]
@@ -682,14 +692,25 @@ class BunkerHillCard:
             c["bottom_right_vertex"] = self._find_vertex(box["bottom_right_bb"], box["vertex_offset"], original_image=c_image, reference_image=box["bottom_right_ref_img_path"])
             c["top_right_vertex"] = c["top_left_vertex"][0], c["bottom_right_vertex"][1]
             c["bottom_left_vertex"] = c["bottom_right_vertex"][0], c["top_left_vertex"][1]
+
+        return name, c  # return the name and c
     
+    # def _update_all_vertex(self, box: dict) -> None:
+    #     """
+    #     Updates the location of the vertex position for each image using the boxes bounding box
+    #     """
+    #     for index, name in enumerate(tqdm(self.image_names)):
+    #         self._update_vertex_for_image(box, index)
+
+
     def _update_all_vertex(self, box: dict) -> None:
-        """
-        Updates the location of the vertex position for each image using the boxes bounding box
-        """
-        for index, name in enumerate(tqdm(self.image_names)):
-            self._update_vertex_for_image(box, index)
-    
+        with ProcessPoolExecutor() as executor:
+            num_iters = len(self.image_names)
+            # print(num_iters, list(range(len(self.image_names))), self.image_names, self.image_paths, len(self.image_names), len(self.image_paths))
+            results = executor.map(self._update_vertex_for_image, [box]*num_iters, list(range(len(self.image_names))), [self.image_paths]*num_iters, [self.image_names]*num_iters)
+        for name, c in results:
+            # update the main box object with the returned values
+            box[name] = c
 
     def _update_image_vertex(self, image, image_name: str, box: dict) -> None:
         """
