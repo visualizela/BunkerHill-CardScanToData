@@ -7,7 +7,7 @@ import cv2
 import pytesseract
 from pytesseract import Output
 
-pytesseract.pytesseract.tesseract_cmd = 'C:\\Program Files\\Tesseract-OCR\\tesseract.exe'
+# pytesseract.pytesseract.tesseract_cmd = '/opt/homebrew/bin/tesseract'
 
 
 class card_analysis(ABC):
@@ -43,10 +43,10 @@ class card_analysis(ABC):
             self.image_names.append(name)
             self.image_paths.append(joined)
 
-        self.current_image = cv2.imread(self.image_paths[0])
+        self.current_image = cv2.imread(self.image_paths[1])
         self.box_name = path.split(os.path.sep)[-1]
         self.detect_text_on_current_image()
-        self.detect_boxes_on_current_image()
+        # self.detect_boxes_on_current_image()
 
     def get_new_unique_color(
         self, colors: list, desired_distance: int, tries: int = 1_000
@@ -328,7 +328,7 @@ class race_of_household(card_analysis):
 
 if __name__ == "__main__":
     tmp = race_of_household(
-        "C:\\Users\\Admin\\Desktop\\USC\\Internships\\Library Data Visualization\\BunkerHill-CardScanToData\\data\\sliced_cards\\11-02-2022\\race_of_household"
+        "data/sliced_cards/10-25-2023/form_info"
     )
     tmp.analyze_card()
     tmp.draw_boxes_around_text()

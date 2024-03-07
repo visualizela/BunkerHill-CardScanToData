@@ -1,11 +1,17 @@
 import json
 import os
 import shutil
+import uuid
+from concurrent.futures import ProcessPoolExecutor
 from datetime import date
+from typing import Tuple
+import concurrent.futures
 
 import cv2
 import numpy as np
-import win32api
+from tqdm import tqdm
+from wand.exceptions import ImageError
+from wand.image import Image
 
 from src.constants import (
     BOXED_PATH,
@@ -38,57 +44,65 @@ class BunkerHillCard:
         RuntimeError: If image cannot be found.
     """
 
-    # Last undo variables saved for redo command.
-    last_undo = None
-
-    # Image variables.
-    unmodified_current = None
-    image_names = []
-    image_paths = []
-
-    # current selection variables.
-    selections = []
-    selection_vertexes = []
-
-    # Box variables.
-    boxes = []
-    curr_box = {}
-    box_json = {}
-    vertex_offset = DEFAULT_VERTEX_OFFSET
-    stroke_size = DEFAULT_STROKE_SIZE
-
-    # Cursor variables.
-    mouse_locations = [[0, 0] for i in range(MOUSE_BOX_BUFFER_SIZE)]  # Track position of last n mouse locations
-    frames_since_cursor_transition = 99  # used to track frames since last cursor swap
-    cursor_is_custom = False  # used to track which mode the cursor is in
-
-    # State flags.
-    current_mode = 0         # Mode of the application: 0=box_mode, 1=text_mode, 2=image_mode
-    display_state = 0        # How to draw the page 1=show boxes, 2=show only current box, 3=hide all
-    last_button_q = False    # Flag to track if the last button press was 'q'
-    last_button_ret = False  # Flag to track if the last button press was 'return'
-    current_image = 0        # Index of current image to show
-    show_preview_box = True  # If the preview box window should be displayed
-    selected_box_index = -1  # Index of the current selected box
-
-    # Text mode variables
-    word = ""               # Current content of typed word for text mode
-    cursor_index = 0        # Position of the cursor in the current word
-    started_typing = False  # If user has started typing (used to delete default word)
-
-    # Image mode variables
-    shift_size = DEFAULT_SHIFT_SIZE  # How far to shift border on arrow click
-    shift_image = None               # Displayed image for shift mode before it is saved
-    image_mode_last_quit = False     # Confirm quit for image mode
-
-    def __init__(self, path: str) -> None:
+    def __init__(self, path: str, no_find_vertex=False, save_dir=None) -> None:
         """
         Initiate class variables
 
         Args:
             path (str): path to image directory
         """
-        self.image_names = os.listdir(path)
+        # Last undo variables saved for redo command.
+        self.last_undo = None
+
+        # Image variables.
+        self.unmodified_current = None
+        self.image_names = []
+        self.image_paths = []
+
+        # current selection variables.
+        self.selections = []
+        self.selection_vertexes = []
+
+        # Box variables.
+        self.boxes = []
+        self.curr_box = {}
+        self.box_json = {}
+        self.vertex_offset = DEFAULT_VERTEX_OFFSET
+        self.stroke_size = DEFAULT_STROKE_SIZE
+
+        self.bounding_box_templates = []
+
+        # Cursor variables.
+        self.mouse_locations = [[0, 0] for i in range(MOUSE_BOX_BUFFER_SIZE)]  # Track position of last n mouse locations
+        self.frames_since_cursor_transition = 99  # used to track frames since last cursor swap
+        self.cursor_is_custom = False  # used to track which mode the cursor is in
+
+        # State flags.
+        self.current_mode = 0         # Mode of the application: 0=box_mode, 1=text_mode, 2=image_mode
+        self.display_state = 0        # How to draw the page 1=show boxes, 2=show only current box, 3=hide all
+        self.last_button_q = False    # Flag to track if the last button press was 'q'
+        self.last_button_ret = False  # Flag to track if the last button press was 'return'
+        self.current_image = 0        # Index of current image to show
+        self.show_preview_box = True  # If the preview box window should be displayed
+        self.selected_box_index = -1  # Index of the current selected box
+
+        # Text mode variables
+        self.word = ""               # Current content of typed word for text mode
+        self.cursor_index = 0        # Position of the cursor in the current word
+        self.started_typing = False  # If user has started typing (used to delete default word)
+
+        # Image mode variables
+        self.shift_size = DEFAULT_SHIFT_SIZE  # How far to shift border on arrow click
+        self.shift_image = None               # Displayed image for shift mode before it is saved
+        self.image_mode_last_quit = False     # Confirm quit for image mode
+
+        self.no_find_vertex = False
+
+
+        self.save_dir = save_dir
+        if self.save_dir is not None:
+            os.makedirs(self.save_dir, exist_ok=True)
+        self.image_names = [f for f in os.listdir(path) if f.endswith((".png", ".jpg", ".jpeg", ".tiff", ".bmp", ".gif"))]
         if len(self.image_names) > 0:
             for n in self.image_names:
                 self.image_paths.append(os.path.join(path, n))
@@ -103,8 +117,18 @@ class BunkerHillCard:
             metadata["path"] = os.path.abspath(path)
             self.box_json["metadata"] = metadata
 
+            self.no_find_vertex = no_find_vertex
+            if self.no_find_vertex:
+                self.vertex_offset = 1
+                self.stroke_size = 1
+
             # initiate empty selection box
             self._initiate_box()
+
+            if os.path.exists(os.path.join(save_dir, "boxes.json")):
+                self._load_outline(path=save_dir)
+                if self.boxes:
+                    self._update_vertex_for_image(self.boxes[self.selected_box_index], self.current_image)
         else:
             raise RuntimeError(f"Error: no images found at {IMAGES_DIR}")
 
@@ -121,6 +145,8 @@ class BunkerHillCard:
             "bottom_right_bb": (0, 0),
             "stroke_size": self.stroke_size,
             "vertex_offset": self.vertex_offset,
+            "top_left_ref_img_path": None,
+            "bottom_right_ref_img_path": None,
             "color": (np.random.randint(0, 256), np.random.randint(0, 256), np.random.randint(0, 256)),
         }
 
@@ -263,12 +289,13 @@ class BunkerHillCard:
 
         return image
 
-    def _draw_selection(self, selection: list, image: np.ndarray) -> np.ndarray:
+    def _draw_selection(self, selection: Tuple[int,int], selection_vertex: Tuple[int,int], image: np.ndarray) -> np.ndarray:
         """
         Draws the current selection on the given image.
 
         Args:
-            selection (list): list of current selections (points the user has clicked)
+            selection (Tuple[int,int]): x,y vector for template
+            selection_vertex (Tuple[int,int]): x,y for particular
             image (np.ndarray): image to draw the selection on.
 
         Returns:
@@ -282,7 +309,6 @@ class BunkerHillCard:
         cv2.rectangle(image, box_draw_tl, box_draw_br, self.curr_box["color"], ss)
 
         # draw vertex
-        selection_vertex = self._find_vertex(selection, self.vertex_offset)
         cv2.circle(
             image,
             (selection_vertex[0], selection_vertex[1]),
@@ -364,7 +390,7 @@ class BunkerHillCard:
         Args:
             image (np.ndarray): image to draw the mouse on
         """
-        win32api.SetCursor(None)
+
         mouse = self.mouse_locations[-1]
 
         # Draw mouse bounding box in box mode
@@ -374,8 +400,8 @@ class BunkerHillCard:
             cv2.rectangle(image, box_draw_tl, box_draw_br, MOUSE_BOX_COLOR, self.stroke_size)
 
             # draw vertex
-            detected_vertex = self._find_vertex((mouse[0], mouse[1]), self.vertex_offset)
-            cv2.circle(image, (detected_vertex[0], detected_vertex[1]), radius=3, color=(0, 0, 255), thickness=2)
+            # detected_vertex = self._find_vertex((mouse[0], mouse[1]), self.vertex_offset)
+            # cv2.circle(image, (detected_vertex[0], detected_vertex[1]), radius=3, color=(0, 0, 255), thickness=2)
 
         # Draw character if mouse in text mode
         elif self.current_mode == 1:
@@ -426,9 +452,6 @@ class BunkerHillCard:
         else:
             to_show = self.unmodified_current.copy()
 
-        if self.cursor_is_custom:
-            win32api.SetCursor(None)
-
         # Drawing everything
         if self.display_state % 3 == 0:
             # Draw completed boxes
@@ -436,15 +459,15 @@ class BunkerHillCard:
                 to_show = self._draw_box(b, to_show)
 
             # Draw current selection(s)
-            for s in self.selections:
-                to_show = self._draw_selection(s, to_show)
+            for s,s_v in zip(self.selections, self.selection_vertexes):
+                to_show = self._draw_selection(s, s_v, to_show)
 
         # Draw only current selection or most recent box
         if self.display_state % 3 == 1:
             # if user made a selection, draw that
             if len(self.selections) > 0:
-                for s in self.selections:
-                    to_show = self._draw_selection(s, to_show)
+                for s,s_v in zip(self.selections, self.selection_vertexes):
+                    to_show = self._draw_selection(s, s_v, to_show)
 
                 for b in self.boxes:
                     to_show = self._draw_blank_over_box(b, to_show)
@@ -479,7 +502,6 @@ class BunkerHillCard:
                     mouse_speed > MOUSE_BOX_SWITCH_TO_CURSOR_SPEED
                     and self.frames_since_cursor_transition > MOUSE_BOX_FLICKER_REDUCTION
                 ):
-                    win32api.SetCursor(None)
                     self.frames_since_cursor_transition = 0
                     self.cursor_is_custom = False
 
@@ -529,14 +551,14 @@ class BunkerHillCard:
             bottom_right_y = bottom_right[1]
 
             cropped = to_show[top_left_y:bottom_right_y, top_left_x:bottom_right_x]
-            resized = cv2.resize(cropped, None, fx=magnification, fy=magnification, interpolation=cv2.INTER_LINEAR)
-            cv2.imshow('Preview Box Window', resized)
+            # resized = cv2.resize(cropped, None, fx=magnification, fy=magnification, interpolation=cv2.INTER_LINEAR)
+            cv2.imshow("Preview Box Window", cropped)
 
             # Hide the cursor from window title if user is typing
             if self.current_mode == 1:
-                cv2.setWindowTitle('Preview Box Window', f'{self.word}')
+                cv2.setWindowTitle("Preview Box Window", f"{self.word}")
             else:
-                cv2.setWindowTitle('Preview Box Window', f'{box["name"]}')
+                cv2.setWindowTitle("Preview Box Window", f'{box["name"]}')
 
         else:
             try:
@@ -553,11 +575,24 @@ class BunkerHillCard:
             y (int): y position of mouse (in pixels)
         """
 
-        self.selections.append((x, y))
         print(f"box{len(self.boxes)} selection: ({x}, {y})")
-
-        vertex = self._find_vertex((x, y), self.vertex_offset)
+        anchor_image_path = self._create_anchor_image((x,y), self.vertex_offset, self.unmodified_current)
+        self.selections.append((x, y, anchor_image_path))
+        if self.no_find_vertex:
+            vertex = (x,y)
+        else:
+            vertex = self._find_vertex((x, y), self.vertex_offset, self.unmodified_current, anchor_image_path)
         self.selection_vertexes.append(vertex)
+
+    def _re_find_selection_vertexes(self):
+        self.selection_vertexes = []
+        for s in self.selections:
+            x,y,anchor_image_path = s
+            if self.no_find_vertex:
+                vertex = (x,y)
+            else:
+                vertex = self._find_vertex((x, y), self.vertex_offset, self.unmodified_current, anchor_image_path)
+            self.selection_vertexes.append(vertex)
 
     def _create_box(self) -> None:
         """
@@ -576,28 +611,34 @@ class BunkerHillCard:
         self.selected_box_index = -1
 
         # append other two implicit corners
-        self.selections.append((self.selections[0][0], self.selections[1][1]))
-        self.selections.append((self.selections[1][0], self.selections[0][1]))
+        # self.selections.append((self.selections[0][0], self.selections[1][1]))
+        # self.selections.append((self.selections[1][0], self.selections[0][1]))
 
         # Find and sort the edges of the box
-        self.selections.sort(key=lambda i: i[0])
-        s0 = self.selections[0]
-        s1 = self.selections[1]
-        s2 = self.selections[2]
-        s3 = self.selections[3]
+        # self.selections.sort(key=lambda i: i[0])
+        # s0 = self.selections[0]
+        # s1 = self.selections[1]
+        # s2 = self.selections[2]
+        # s3 = self.selections[3]
 
-        tlbb = s0 if s0[1] < s1[1] else s1
-        blbb = s1 if s0[1] < s1[1] else s0
-        trbb = s2 if s2[1] < s3[1] else s3
-        brbb = s3 if s2[1] < s3[1] else s2
+        # tlbb = s0 if s0[1] < s1[1] else s1
+        # blbb = s1 if s0[1] < s1[1] else s0
+        # trbb = s2 if s2[1] < s3[1] else s3
+        # brbb = s3 if s2[1] < s3[1] else s2
 
-        self.curr_box["top_left_bb"] = tlbb
-        self.curr_box["bottom_left_bb"] = blbb
-        self.curr_box["top_right_bb"] = trbb
-        self.curr_box["bottom_right_bb"] = brbb
+        self.curr_box["top_left_bb"] = self.selections[0][:2]
+        self.curr_box["top_left_ref_img_path"] = self.selections[0][2]
+
+        self.curr_box["bottom_right_bb"] = self.selections[1][:2]
+        self.curr_box["bottom_right_ref_img_path"] = self.selections[1][2]
+
+        self.curr_box["bottom_left_bb"] = self.curr_box["top_left_bb"][0],self.curr_box["bottom_right_bb"][1]
+        self.curr_box["top_right_bb"] = self.curr_box["bottom_right_bb"][0],self.curr_box["top_left_bb"][1]
+
 
         # Update vertex selection for all images
-        self._update_all_vertex(self.curr_box)
+        # self._update_all_vertex(self.curr_box)
+        self._update_vertex_for_image(self.curr_box, self.current_image)
 
         self.curr_box["name"] = self.word
         self.curr_box["vertex_offset"] = self.vertex_offset
@@ -622,8 +663,6 @@ class BunkerHillCard:
             params (Any): Unused, needed by cv2
         """
 
-        if self.cursor_is_custom:
-            win32api.SetCursor(None)
         # Update list of recent mouse locations
         self.mouse_locations.append([x, y])
         self.mouse_locations.pop(0)
@@ -640,18 +679,48 @@ class BunkerHillCard:
             if len(self.selections) == 2:
                 self._create_box()
 
+    def _update_vertex_for_image(self, box: dict, image_index: int, image_paths=None, image_names=None):
+        if image_names:
+            name = image_names[image_index]
+        else:
+            name = self.image_names[image_index]
+        c = box[name]
+        if image_paths:
+            c_image = cv2.imread(image_paths[image_index])
+        else:
+            c_image = cv2.imread(self.image_paths[image_index])
+        # recalculate best vertex location
+        if self.no_find_vertex:
+            c["top_left_vertex"] = box["top_left_bb"]
+            c["bottom_right_vertex"] = box["bottom_right_bb"]
+            c["top_right_vertex"] = c["top_left_vertex"][0], c["bottom_right_vertex"][1]
+            c["bottom_left_vertex"] = c["bottom_right_vertex"][0], c["top_left_vertex"][1]
+        else:
+            c["top_left_vertex"] = self._find_vertex(box["top_left_bb"], box["vertex_offset"], original_image=c_image, reference_image=box["top_left_ref_img_path"])
+            c["bottom_right_vertex"] = self._find_vertex(box["bottom_right_bb"], box["vertex_offset"], original_image=c_image, reference_image=box["bottom_right_ref_img_path"])
+            c["top_right_vertex"] = c["top_left_vertex"][0], c["bottom_right_vertex"][1]
+            c["bottom_left_vertex"] = c["bottom_right_vertex"][0], c["top_left_vertex"][1]
+
+        return name, c  # return the name and c
+
+    # def _update_all_vertex(self, box: dict) -> None:
+    #     """
+    #     Updates the location of the vertex position for each image using the boxes bounding box
+    #     """
+    #     for index, name in enumerate(tqdm(self.image_names)):
+    #         self._update_vertex_for_image(box, index)
+
+
     def _update_all_vertex(self, box: dict) -> None:
-        """
-        Updates the location of the vertex position for each image using the boxes bounding box
-        """
-        for index, name in enumerate(self.image_names):
-            c = box[name]
-            c_image = cv2.imread(self.image_paths[index])
-            # recalculate best vertex location
-            c["top_left_vertex"] = self._find_vertex(box["top_left_bb"], box["vertex_offset"], image=c_image)
-            c["top_right_vertex"] = self._find_vertex(box["top_right_bb"], box["vertex_offset"], image=c_image)
-            c["bottom_left_vertex"] = self._find_vertex(box["bottom_left_bb"], box["vertex_offset"], image=c_image)
-            c["bottom_right_vertex"] = self._find_vertex(box["bottom_right_bb"], box["vertex_offset"], image=c_image)
+        with ProcessPoolExecutor() as executor:
+            num_iters = len(self.image_names)
+            futures = [executor.submit(self._update_vertex_for_image, box, i, self.image_paths, self.image_names) for i in range(num_iters)]
+            results = []
+            for future in tqdm(concurrent.futures.as_completed(futures), total=num_iters, desc="Updating Vertices"):
+                results.append(future.result())
+        for name, c in results:
+            # update the main box object with the returned values
+            box[name] = c
 
     def _update_image_vertex(self, image, image_name: str, box: dict) -> None:
         """
@@ -665,12 +734,26 @@ class BunkerHillCard:
         c = box[image_name]
 
         # recalculate best vertex location
-        c["top_left_vertex"] = self._find_vertex(box["top_left_bb"], box["vertex_offset"], image=image)
-        c["top_right_vertex"] = self._find_vertex(box["top_right_bb"], box["vertex_offset"], image=image)
-        c["bottom_left_vertex"] = self._find_vertex(box["bottom_left_bb"], box["vertex_offset"], image=image)
-        c["bottom_right_vertex"] = self._find_vertex(box["bottom_right_bb"], box["vertex_offset"], image=image)
+        if self.no_find_vertex:
+            c["top_left_vertex"] = box["top_left_bb"]
+            c["bottom_right_vertex"] = box["bottom_right_bb"]
+            c["top_right_vertex"] = c["top_left_vertex"][0], c["bottom_right_vertex"][1]
+            c["bottom_left_vertex"] = c["bottom_right_vertex"][0], c["top_left_vertex"][1]
+        else:
+            c["top_left_vertex"] = self._find_vertex(box["top_left_bb"], box["vertex_offset"], original_image=image, reference_image=box["top_left_ref_img_path"])
+            c["bottom_right_vertex"] = self._find_vertex(box["bottom_right_bb"], box["vertex_offset"], original_image=image, reference_image=box["bottom_right_ref_img_path"])
+            c["top_right_vertex"] = c["top_left_vertex"][0], c["bottom_right_vertex"][1]
+            c["bottom_left_vertex"] = c["bottom_right_vertex"][0], c["top_left_vertex"][1]
 
-    def _find_vertex(self, bounding_box: tuple, vertex_offset: int, image=None) -> tuple:
+    def _create_anchor_image(self, bounding_box: Tuple[int,int], vertex_offset: int, anchor_image: np.array):
+        anchor_image_height, anchor_image_width = anchor_image.shape[:2]
+        subimage = anchor_image[max(0, bounding_box[1]-vertex_offset):min(anchor_image_height, bounding_box[1]+vertex_offset), max(0, bounding_box[0]-vertex_offset):min(anchor_image_width, bounding_box[0]+vertex_offset)]
+        filename = f"data/boxes/{uuid.uuid4()}.png"
+        cv2.imwrite(filename, subimage)
+        return filename
+
+
+    def _find_vertex(self, bounding_box: Tuple[int,int], vertex_offset: int, original_image: np.array, reference_image: str) -> tuple:
         """
         Find the vertex given a bounding box and vertex offset
 
@@ -680,43 +763,45 @@ class BunkerHillCard:
             image (optional): Image to check for vertex on, defaults to the current image if None given.
 
         Returns:
-            tuple: (x,y) of vertex detexted
+            tuple: (x,y) of vertex detected
         """
-        if image is None:
-            image = self.unmodified_current
-        top_left = (bounding_box[0] - vertex_offset, bounding_box[1] - vertex_offset)
-        bottom_right = (bounding_box[0] + vertex_offset, bounding_box[1] + vertex_offset)
-        tx = max(top_left[0], 0)
-        ty = max(top_left[1], 0)
-        bx = bottom_right[0] if bottom_right[0] < image.shape[1] else image.shape[1] - 1
-        by = bottom_right[1] if bottom_right[1] < image.shape[0] else image.shape[0] - 1
 
-        cropped = image[ty:by, tx:bx]
-        width = cropped.shape[1]
-        height = cropped.shape[0]
+        # Convert the OpenCV image to Wand Image
+        wand_image = Image.from_array(original_image)
 
-        processed = cv2.cvtColor(cropped, cv2.COLOR_BGR2GRAY)
-        a, processed = cv2.threshold(processed, 127, 255, cv2.THRESH_BINARY)
+        anchor_image = Image(filename=reference_image)
 
-        col_score = [0 for i in range(width)]
-        row_score = [0 for i in range(height)]
+        # Define the region to search within
+        search_region_top_left = (max(0, bounding_box[0] - vertex_offset*2), max(0, bounding_box[1] - vertex_offset*2))
+        search_region_bottom_right = (min(wand_image.width, bounding_box[0] + vertex_offset*2), min(wand_image.height, bounding_box[1] + vertex_offset*2))
 
-        # Sum lines in rows and cols
-        for col in range(width):
-            for row in range(height):
-                row_score[row] += 1 if processed[row][col] == 0 else 0
+        # print(search_region_top_left, search_region_bottom_right)
 
-        for row in range(height):
-            for col in range(width):
-                col_score[col] += 1 if processed[row][col] == 0 else 0
+        # Crop the larger image to the search region
+        try:
+            search_region = wand_image[search_region_top_left[0]:search_region_bottom_right[0], search_region_top_left[1]:search_region_bottom_right[1]]
+        except IndexError:
+            # If IndexError occurs, adjust the search region to fit within the image boundaries
+            search_region_top_left = (max(0, min(search_region_top_left[0], wand_image.width - 12)), max(0, min(search_region_top_left[1], wand_image.height - 12)))
+            search_region_bottom_right = (max(0, min(search_region_bottom_right[0], wand_image.width)), max(0, min(search_region_bottom_right[1], wand_image.height)))
+            search_region = wand_image[search_region_top_left[0]:search_region_bottom_right[0], search_region_top_left[1]:search_region_bottom_right[1]]
 
-        weighted_col_score = self._calculate_proximity_score(col_score)
-        weighted_row_score = self._calculate_proximity_score(row_score)
 
-        best_y = weighted_row_score.index(max(weighted_row_score))
-        best_x = weighted_col_score.index(max(weighted_col_score))
+        # Use Wand's similarity function to find the best match
+        try:
+            location, diff = search_region.similarity(anchor_image, threshold=0.0)
+            vertex_x = location["left"] + search_region_top_left[0] + vertex_offset
+            vertex_y = location["top"] + search_region_top_left[1] + vertex_offset
+        except ImageError:
+            vertex_x = max(0, min(bounding_box[0], wand_image.width))
+            vertex_y = max(0, min(bounding_box[1], wand_image.height))
 
-        return (best_x + bounding_box[0] - vertex_offset, best_y + bounding_box[1] - vertex_offset)
+        # print(vertex_x, vertex_y)
+
+        anchor_image.close()
+
+        # Return the location of the best match, adjusted for the coordinates of the search region
+        return (vertex_x, vertex_y)
 
     def _calculate_proximity_score(self, unweighted_list: list) -> list:
         """
@@ -752,11 +837,11 @@ class BunkerHillCard:
         Undoes the last redo action
         """
         if self.last_undo is not None:
-            if type(self.last_undo) == list:
-                self.selections = self.last_undo
+            if self.last_undo_type == "selections":
+                self.selections, self.selection_vertexes = self.last_undo
                 self.last_undo = None
                 print("Redoing most recent selection(s)")
-            elif type(self.last_undo) == dict:
+            elif self.last_undo_type == "boxes":
                 self.boxes.append(self.last_undo)
                 self.last_undo = None
                 print("Redoing most recent box")
@@ -773,12 +858,15 @@ class BunkerHillCard:
         """
         if len(self.selections) > 0:
             print("Removing current selection(s)")
-            self.last_undo = self.selections
+            self.last_undo = (self.selections, self.selection_vertexes)
+            self.last_undo_type = "selections"
             self.selections = []
+            self.selection_vertexes = []
         else:
             if len(self.boxes) > 0:
                 print("Removing selected box")
                 self.last_undo = self.boxes[self.selected_box_index]
+                self.last_undo_type = "boxes"
                 self.boxes.remove(self.last_undo)
                 if self.selected_box_index > 0:
                     self.selected_box_index -= 1
@@ -787,7 +875,7 @@ class BunkerHillCard:
             else:
                 print("Nothing to undo...")
 
-    def _save_outline(self):
+    def _save_outline(self, path=None):
         """
         Save the selections json to be analyzed later
         """
@@ -798,10 +886,25 @@ class BunkerHillCard:
         self.box_json["metadata"]["total_boxes"] = len(self.boxes)
         self.box_json["boxes"] = self.boxes
 
-        with open(os.path.join(BOXED_PATH, "boxes.json"), 'w', encoding='utf-8') as f:
+        save_path = path or BOXED_PATH
+
+        with open(os.path.join(save_path, "boxes.json"), "w", encoding="utf-8") as f:
             json.dump(self.box_json, f, ensure_ascii=False, indent=3)
 
-        print("selections have been saved")
+        print("Selections have been saved")
+
+    def _load_outline(self, path=None):
+        """
+        Load the selections json to continue from a previous session
+        """
+        load_path = path or BOXED_PATH
+
+        with open(os.path.join(load_path, "boxes.json"), 'r', encoding='utf-8') as f:
+            self.box_json = json.load(f)
+
+        self.boxes = self.box_json.get("boxes", [])
+
+        print("selections have been loaded")
 
     def _text_mode(self, key: int) -> str:
         """
@@ -888,13 +991,13 @@ class BunkerHillCard:
             self.cursor_index = 0
 
         # move cursor right
-        elif key == 2555904:
+        elif key == 63235 or key == 2555904:
             self.started_typing = True
             if self.cursor_index < len(self.word):
                 self.cursor_index += 1
 
         # move cursor left
-        elif key == 2424832:
+        elif key == 63234 or key == 2424832:
             self.started_typing = True
             if self.cursor_index > 0:
                 self.cursor_index -= 1
@@ -964,30 +1067,36 @@ class BunkerHillCard:
                 b = self.boxes[self.selected_box_index]
                 b["vertex_offset"] += 1
 
-                self._update_all_vertex(b)
+                # self._update_all_vertex(b)
 
         # left arrow key
-        elif key == 2424832:
+        elif key == 63234 or key == 2424832:
             self.last_button_q = False
             self.last_button_ret = False
             if self.current_image > 0:
                 self.current_image -= 1
                 self.unmodified_current = cv2.imread(self.image_paths[self.current_image])
                 self.shift_image = self.unmodified_current
-                cv2.setWindowTitle(WINDOW_TITLE, f'{WINDOW_TITLE} ({self.current_image + 1}/{len(self.image_paths)})')
+                self._re_find_selection_vertexes()
+                if self.boxes:
+                    self._update_vertex_for_image(self.boxes[self.selected_box_index], self.current_image)
+                cv2.setWindowTitle(WINDOW_TITLE, f"{WINDOW_TITLE} ({self.current_image + 1}/{len(self.image_paths)})")
 
         # right arrow key
-        elif key == 2555904:
+        elif key == 63235 or key == 2555904:
             self.last_button_q = False
             self.last_button_ret = False
             if self.current_image < len(self.image_paths) - 1:
                 self.current_image += 1
                 self.unmodified_current = cv2.imread(self.image_paths[self.current_image])
                 self.shift_image = self.unmodified_current
-                cv2.setWindowTitle(WINDOW_TITLE, f'{WINDOW_TITLE} ({self.current_image + 1}/{len(self.image_paths)})')
+                self._re_find_selection_vertexes()
+                if self.boxes:
+                    self._update_vertex_for_image(self.boxes[self.selected_box_index], self.current_image)
+                cv2.setWindowTitle(WINDOW_TITLE, f"{WINDOW_TITLE} ({self.current_image + 1}/{len(self.image_paths)})")
 
         # Down key
-        elif key == 2621440:
+        elif key == 63233 or key == 2621440:
             self.last_button_q = False
             self.last_button_ret = False
             if len(self.boxes) > 0:
@@ -1000,7 +1109,7 @@ class BunkerHillCard:
             print(f"Box: {self.selected_box_index + 1}/{len(self.boxes)}")
 
         # Up key
-        elif key == 2490368:
+        elif key == 63232 or key == 2490368:
             self.last_button_q = False
             self.last_button_ret = False
             if len(self.boxes) > 0:
@@ -1013,17 +1122,25 @@ class BunkerHillCard:
                     self.selected_box_index = 0
             print(f"Box: {self.selected_box_index + 1}/{len(self.boxes)}")
 
-        # save and exit
+        # save and exit (return)
         elif key == 13:
             self.last_button_q = False
             if self.last_button_ret:
                 print("saving boxed zones...")
+                # Separate file saves by day
+                if self.save_dir is None:
+                    now = date.today()
+                    now_string = now.strftime("%m-%d-%Y")
+                    base_dir = os.path.join(SLICED_CARDS, now_string)
+                else:
+                    base_dir = self.save_dir
+
                 save_success = True
 
-                # Separate file saves by day
-                now = date.today()
-                now_string = now.strftime("%m-%d-%Y")
-                base_dir = os.path.join(SLICED_CARDS, now_string)
+                self._save_outline(base_dir)
+
+                for b in tqdm(self.boxes):
+                    self._update_all_vertex(b)
 
                 if not os.path.exists(base_dir):
                     os.mkdir(base_dir)
@@ -1054,10 +1171,15 @@ class BunkerHillCard:
                         if not os.path.exists(image_dir):
                             os.mkdir(image_dir)
                         save_path = os.path.join(image_dir, image_name)
-                        cv2.imwrite(save_path, cropped)
+                        try:
+                            cv2.imwrite(save_path, cropped)
+                        except cv2.error:
+                            pass
                         if not os.path.isfile(f"{save_path}"):
-                            print("Error: failed to save image ({save_path})")
+                            print(f"Error: failed to save image ({save_path})")
                             save_success = False
+
+                self._save_outline(base_dir)
 
                 if save_success:
                     print("Save successful!")
@@ -1086,7 +1208,7 @@ class BunkerHillCard:
                 b["vertex_offset"] -= 1
 
                 # recalculate best vertex location
-                self._update_all_vertex(b)
+                # self._update_all_vertex(b)
 
         elif key == ord("}") or key == ord("]"):
             self.last_button_ret = False
@@ -1116,7 +1238,13 @@ class BunkerHillCard:
             self.last_button_q = False
             self.last_button_ret = False
             print("saving")
-            self._save_outline()
+            if self.save_dir is None:
+                now = date.today()
+                now_string = now.strftime("%m-%d-%Y")
+                base_dir = os.path.join(SLICED_CARDS, now_string)
+            else:
+                base_dir = self.save_dir
+            self._save_outline(base_dir)
         elif key == ord("q"):
             self.last_button_ret = False
             if self.last_button_q:
@@ -1137,7 +1265,9 @@ class BunkerHillCard:
             key (int): key press int
         """
         # Right key
-        if key == 2555904:
+        if key != -1:
+            print(f"key: {key}")
+        if key == 63235 or key == 2555904:
             self.image_mode_last_quit = False
             self.shift_image = cv2.copyMakeBorder(
                 self.shift_image, 0, 0, self.shift_size, 0, cv2.BORDER_CONSTANT, value=DEFAULT_BORDER_COLOR
@@ -1145,7 +1275,7 @@ class BunkerHillCard:
             for b in self.boxes:
                 self._update_image_vertex(self.shift_image, self.image_names[self.current_image], b)
         # Down key
-        if key == 2621440:
+        if key == 63233 or key == 2621440:
             self.image_mode_last_quit = False
             self.shift_image = cv2.copyMakeBorder(
                 self.shift_image, self.shift_size, 0, 0, 0, cv2.BORDER_CONSTANT, value=DEFAULT_BORDER_COLOR
@@ -1153,7 +1283,7 @@ class BunkerHillCard:
             for b in self.boxes:
                 self._update_image_vertex(self.shift_image, self.image_names[self.current_image], b)
         # Up key
-        if key == 2490368:
+        if key == 63232 or key == 2490368:
             self.image_mode_last_quit = False
             self.shift_image = self.shift_image[self.shift_size :, :]
 
@@ -1161,7 +1291,7 @@ class BunkerHillCard:
                 self._update_image_vertex(self.shift_image, self.image_names[self.current_image], b)
 
         # Left key
-        if key == 2424832:
+        if key == 63234 or key == 2424832:
             self.image_mode_last_quit = False
             self.shift_image = self.shift_image[:, self.shift_size :]
 
@@ -1184,8 +1314,8 @@ class BunkerHillCard:
             self.current_mode = 0
             print("Saving edit and leaving image mode")
             # update the vertexes
-            for b in self.boxes:
-                self._update_all_vertex(b)
+            # for b in self.boxes:
+            #     self._update_all_vertex(b)
 
         if key == ord("h"):
             self.image_mode_last_quit = False
@@ -1221,10 +1351,10 @@ class BunkerHillCard:
 
         # setting mouse handler for the image
         # and calling the click_event() function
+        cv2.destroyAllWindows()
         cv2.namedWindow(WINDOW_TITLE)
         cv2.setMouseCallback(WINDOW_TITLE, self._click_event)
-        cv2.setWindowTitle(WINDOW_TITLE, f'{WINDOW_TITLE} ({self.current_image + 1}/{len(self.image_paths)})')
-        win32api.SetCursor(None)
+        cv2.setWindowTitle(WINDOW_TITLE, f"{WINDOW_TITLE} ({self.current_image + 1}/{len(self.image_paths)})")
         while True:
             self._draw_image()
 
@@ -1236,8 +1366,6 @@ class BunkerHillCard:
             # update mouse position
             self.mouse_locations.append(self.mouse_locations[-1])
             self.mouse_locations.pop(0)
-            if self.cursor_is_custom:
-                win32api.SetCursor(None)
 
             k = cv2.waitKeyEx(1)
 
@@ -1264,4 +1392,3 @@ class BunkerHillCard:
             # If user is in image mode handle image mode inputs
             elif self.current_mode == 2:
                 self._image_mode(k)
-

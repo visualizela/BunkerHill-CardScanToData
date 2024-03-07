@@ -1,0 +1,14 @@
+opencv-python-headless
+pytesseract
+argparse
+numpy
+scikit-learn
+Pillow
+tqdm
+pandas
+matplotlib
+Wand
+pydantic
+paddleocr>=2.0.1
+google-cloud-vision 
+paddlepaddle
