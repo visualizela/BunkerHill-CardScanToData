@@ -1,5 +1,8 @@
 data/
+deprecated/
 .vscode/
+.idea/
+.ruff_cache/
 images/
 
 # Byte-compiled / optimized / DLL files
@@ -132,15 +135,3 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-deprecated/*
-deskewed/*
-deskewed2/*
-edgecut3/*
-edgecut4/*
-matched/*
-resized_images/*
-11-28-2023/*
-core_data_points/*
-race_of_household-1129-cut/*
-race_of_household-1129/*
-sampleimgs/*

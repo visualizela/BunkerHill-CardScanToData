@@ -1,6 +1,8 @@
 import os
 from pathlib import Path
 
+DEBUG = False
+
 # Files and Paths
 SRC_PATH = Path(os.path.dirname(__file__))
 PROJECT_ROOT_PATH = Path(os.path.abspath(SRC_PATH / ".."))
@@ -31,3 +33,6 @@ VERTEX_SIZE = 3  # How large to draw the vertex circle radius
 # Image mode
 DEFAULT_SHIFT_SIZE = 5  # Default number of pixels to shift image by
 DEFAULT_BORDER_COLOR = (0, 0, 0)  # Default border color for image mode
+
+# Image Processing
+MAX_WORKERS = 4
