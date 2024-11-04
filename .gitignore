@@ -1,5 +1,8 @@
 data/
+deprecated/
 .vscode/
+.idea/
+.ruff_cache/
 images/
 
 # Byte-compiled / optimized / DLL files
@@ -131,3 +134,4 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+

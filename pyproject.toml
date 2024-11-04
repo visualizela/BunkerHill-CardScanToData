@@ -5,3 +5,13 @@ skip-string-normalization = true
 [tool.isort]
 profile = "black"
 line_length = 120
+
+[tool.ruff]
+select = ["F", "E", "W", "Q", "I001", "E", "F", "W", "C90", "DJ"]
+exclude = [
+    "**/.venv",
+]
+ignore = ["E501"]
+
+[tool.ruff.mccabe]
+max-complexity = 10
