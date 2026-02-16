@@ -125,7 +125,7 @@ class BunkerHillCard:
             # initiate empty selection box
             self._initiate_box()
 
-            if os.path.exists(os.path.join(save_dir, "boxes.json")):
+            if save_dir is not None and os.path.exists(os.path.join(save_dir, "boxes.json")):
                 self._load_outline(path=save_dir)
                 if self.boxes:
                     self._update_vertex_for_image(self.boxes[self.selected_box_index], self.current_image)
@@ -1137,16 +1137,16 @@ class BunkerHillCard:
 
                 save_success = True
 
+                if not os.path.exists(base_dir):
+                    os.makedirs(base_dir, exist_ok=True)
+                else:
+                    shutil.rmtree(base_dir)
+                    os.mkdir(base_dir)
+
                 self._save_outline(base_dir)
 
                 for b in tqdm(self.boxes):
                     self._update_all_vertex(b)
-
-                if not os.path.exists(base_dir):
-                    os.mkdir(base_dir)
-                else:
-                    shutil.rmtree(base_dir)
-                    os.mkdir(base_dir)
 
                 # save files per box per image
                 for i, path in enumerate(self.image_paths):

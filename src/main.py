@@ -50,7 +50,7 @@ def main():
     parser.add_argument('--region_mode', action='store_true', help='Segment regions instead of cards')
     args = parser.parse_args()
 
-    if not initiate_directory(args.images_dir, args.save_dir):
+    if not initiate_directory(args.images_dir, args.save_dir or DATA_DIR):
         print("Quitting...")
     if args.region_mode:
         subfolders = [f for f in args.images_dir.iterdir() if f.is_dir()]
