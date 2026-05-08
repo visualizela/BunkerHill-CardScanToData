@@ -5,6 +5,9 @@ deprecated/
 .ruff_cache/
 images/
 
+# Local census card scans (default input folder; see IMAGES_DIR in src/constants.py)
+sampleimgs/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

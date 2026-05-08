@@ -12,3 +12,7 @@ pydantic
 paddleocr>=2.0.1
 google-cloud-vision 
 paddlepaddle
+easyocr>=1.7.0
+transformers>=4.30.0
+torch
+openai>=1.40.0

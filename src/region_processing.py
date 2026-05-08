@@ -64,7 +64,7 @@ def process_region_segments_checkbox(base_path: Path, classifier_path, skip_fold
 def ocr_task(image_path, ocr_processor, column_name):
     if image_path.suffix.lower() in ['.png', '.jpg', '.jpeg', '.tiff', '.bmp', '.gif']:
         image_index = image_path.name
-        ocr_text = ocr_processor.run(image_path).strip()
+        ocr_text = ocr_processor.run(image_path, field_context=column_name).strip()
         return image_index, ocr_text, column_name
     return None, None, None
     

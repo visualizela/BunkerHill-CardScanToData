@@ -1,3 +1,4 @@
+import copy
 import json
 import os
 import shutil
@@ -84,7 +85,11 @@ class BunkerHillCard:
         self.last_button_ret = False  # Flag to track if the last button press was 'return'
         self.current_image = 0        # Index of current image to show
         self.show_preview_box = True  # If the preview box window should be displayed
+        self.show_box_names = True  # If box name labels are drawn on the main image
         self.selected_box_index = -1  # Index of the current selected box
+        self.move_mode = False  # Click-drag to reposition existing boxes (box mode only)
+        self._drag_box_index = None  # int | None — index of box being dragged
+        self._drag_grab = (0, 0)  # mouse offset from top_left_bb at drag start
 
         # Text mode variables
         self.word = ""               # Current content of typed word for text mode
@@ -196,96 +201,41 @@ class BunkerHillCard:
             np.ndarray: image with box drawn
         """
 
-        vertex_offset = box["vertex_offset"]
         ss = box["stroke_size"]
         selected_stroke = 0
 
         c = box["color"]
         tlbb = box["top_left_bb"]
-        trbb = box["top_right_bb"]
-        blbb = box["bottom_left_bb"]
         brbb = box["bottom_right_bb"]
 
-        curr_image = box[self.image_names[self.current_image]]
-        tlv = curr_image["top_left_vertex"]
-        trv = curr_image["top_right_vertex"]
-        blv = curr_image["bottom_left_vertex"]
-        brv = curr_image["bottom_right_vertex"]
-
-        if self.boxes[self.selected_box_index] == box and self.display_state % 3 == 0:
-            # make box lines a little thicker
+        is_selected = (
+            len(self.boxes) > 0
+            and self.selected_box_index >= 0
+            and self.boxes[self.selected_box_index] is box
+            and self.display_state % 3 == 0
+        )
+        if is_selected:
             selected_stroke = 2
 
-            # draw indicator lines
-
-            # top middle
-            cv2.line(
-                image,
-                (tlbb[0] + int(abs(tlbb[0] - trbb[0]) / 2), tlbb[1] + int(2 * vertex_offset / 3)),
-                (trbb[0] - int(abs(tlbb[0] - trbb[0]) / 2), trbb[1] - int(2 * vertex_offset / 3)),
-                c,
-                ss + selected_stroke,
-            )
-            # bot middle
-            cv2.line(
-                image,
-                (blbb[0] + int(abs(blbb[0] - brbb[0]) / 2), blbb[1] + int(2 * vertex_offset / 3)),
-                (brbb[0] - int(abs(blbb[0] - brbb[0]) / 2), brbb[1] - int(2 * vertex_offset / 3)),
-                c,
-                ss + selected_stroke,
-            )
-            # left middle
-            cv2.line(
-                image,
-                (tlbb[0] + int(2 * vertex_offset / 3), tlbb[1] + int(abs(tlbb[1] - brbb[1]) / 2)),
-                (tlbb[0] - int(2 * vertex_offset / 3), blbb[1] - int(abs(tlbb[1] - brbb[1]) / 2)),
-                c,
-                ss + selected_stroke,
-            )
-            # right middle
-            cv2.line(
-                image,
-                (trbb[0] + int(2 * vertex_offset / 3), trbb[1] + int(abs(tlbb[1] - brbb[1]) / 2)),
-                (trbb[0] - int(2 * vertex_offset / 3), brbb[1] - int(abs(tlbb[1] - brbb[1]) / 2)),
-                c,
-                ss + selected_stroke,
-            )
-
-        # Draw vertex at 4 detected points
-        cv2.circle(image, (tlv[0], tlv[1]), radius=3, color=c, thickness=2)
-        cv2.circle(image, (trv[0], trv[1]), radius=3, color=c, thickness=2)
-        cv2.circle(image, (blv[0], blv[1]), radius=3, color=c, thickness=2)
-        cv2.circle(image, (brv[0], brv[1]), radius=3, color=c, thickness=2)
-
-        # Draw lines around 4 points
-        cv2.line(image, (tlbb[0] + vertex_offset, tlbb[1]), (trbb[0] - vertex_offset, trbb[1]), c, ss + selected_stroke)
-        cv2.line(image, (tlbb[0], tlbb[1] + vertex_offset), (blbb[0], blbb[1] - vertex_offset), c, ss + selected_stroke)
-        cv2.line(image, (blbb[0] + vertex_offset, blbb[1]), (brbb[0] - vertex_offset, brbb[1]), c, ss + selected_stroke)
-        cv2.line(image, (brbb[0], brbb[1] - vertex_offset), (trbb[0], trbb[1] + vertex_offset), c, ss + selected_stroke)
-
-        # Draw search zones around 4 points
-        tlz_tl = (tlbb[0] - vertex_offset, tlbb[1] + vertex_offset)
-        tlz_br = (tlbb[0] + vertex_offset, tlbb[1] - vertex_offset)
-        cv2.rectangle(image, tlz_tl, tlz_br, c, ss)
-
-        trz_tl = (trbb[0] - vertex_offset, trbb[1] + vertex_offset)
-        trz_br = (trbb[0] + vertex_offset, trbb[1] - vertex_offset)
-        cv2.rectangle(image, trz_tl, trz_br, c, ss)
-
-        blz_tl = (blbb[0] - vertex_offset, blbb[1] + vertex_offset)
-        blz_br = (blbb[0] + vertex_offset, blbb[1] - vertex_offset)
-        cv2.rectangle(image, blz_tl, blz_br, c, ss)
-
-        brz_tl = (brbb[0] - vertex_offset, brbb[1] + vertex_offset)
-        brz_br = (brbb[0] + vertex_offset, brbb[1] - vertex_offset)
-        cv2.rectangle(image, brz_tl, brz_br, c, ss)
+        cv2.rectangle(
+            image,
+            (tlbb[0], tlbb[1]),
+            (brbb[0], brbb[1]),
+            c,
+            ss + selected_stroke,
+        )
 
         # cv2.putText(image, box["name"], (tlbb[0]+20, tlbb[1]+30), font, 1, c, ss, cv2.LINE_AA)
-        if self.current_mode == 1 and box == self.boxes[self.selected_box_index]:
-            invert = (255 - c[0], 255 - c[1], 255 - c[2])
-            self._draw_box_text(image, box, tlbb, (10, 10), 1, ss, c, text_color_bg=invert)
-        else:
-            self._draw_box_text(image, box, tlbb, (10, 10), 1, ss, c)
+        if self.show_box_names:
+            if (
+                self.current_mode == 1
+                and self.selected_box_index >= 0
+                and box is self.boxes[self.selected_box_index]
+            ):
+                invert = (255 - c[0], 255 - c[1], 255 - c[2])
+                self._draw_box_text(image, box, tlbb, (10, 10), 1, ss, c, text_color_bg=invert)
+            else:
+                self._draw_box_text(image, box, tlbb, (10, 10), 1, ss, c)
 
         return image
 
@@ -550,7 +500,14 @@ class BunkerHillCard:
             bottom_right_x = bottom_right[0]
             bottom_right_y = bottom_right[1]
 
-            cropped = to_show[top_left_y:bottom_right_y, top_left_x:bottom_right_x]
+            h_img, w_img = to_show.shape[:2]
+            br_x_clamped = max(top_left_x, min(bottom_right_x, w_img))
+            br_y_clamped = max(top_left_y, min(bottom_right_y, h_img))
+            cropped = to_show[top_left_y:br_y_clamped, top_left_x:br_x_clamped]
+            # Skip preview if the crop is degenerate (inverted/zero-sized box, or
+            # vertex detection collapsed both corners onto the same point).
+            if cropped is None or cropped.size == 0 or cropped.shape[0] == 0 or cropped.shape[1] == 0:
+                return
             # resized = cv2.resize(cropped, None, fx=magnification, fy=magnification, interpolation=cv2.INTER_LINEAR)
             cv2.imshow("Preview Box Window", cropped)
 
@@ -626,11 +583,21 @@ class BunkerHillCard:
         # trbb = s2 if s2[1] < s3[1] else s3
         # brbb = s3 if s2[1] < s3[1] else s2
 
-        self.curr_box["top_left_bb"] = self.selections[0][:2]
-        self.curr_box["top_left_ref_img_path"] = self.selections[0][2]
+        s0 = self.selections[0]
+        s1 = self.selections[1]
+        tl_xy = (min(s0[0], s1[0]), min(s0[1], s1[1]))
+        br_xy = (max(s0[0], s1[0]), max(s0[1], s1[1]))
 
-        self.curr_box["bottom_right_bb"] = self.selections[1][:2]
-        self.curr_box["bottom_right_ref_img_path"] = self.selections[1][2]
+        # Re-anchor at the normalized corners so template-matching for vertex
+        # detection on other images uses imagery actually located at the corners.
+        tl_ref = self._create_anchor_image(tl_xy, self.vertex_offset, self.unmodified_current)
+        br_ref = self._create_anchor_image(br_xy, self.vertex_offset, self.unmodified_current)
+
+        self.curr_box["top_left_bb"] = tl_xy
+        self.curr_box["top_left_ref_img_path"] = tl_ref
+
+        self.curr_box["bottom_right_bb"] = br_xy
+        self.curr_box["bottom_right_ref_img_path"] = br_ref
 
         self.curr_box["bottom_left_bb"] = self.curr_box["top_left_bb"][0],self.curr_box["bottom_right_bb"][1]
         self.curr_box["top_right_bb"] = self.curr_box["bottom_right_bb"][0],self.curr_box["top_left_bb"][1]
@@ -650,6 +617,15 @@ class BunkerHillCard:
         self.selections = []
         self.selection_vertexes = []
 
+    def _box_index_at_point(self, x: int, y: int) -> int | None:
+        """Top-most box index whose axis-aligned BB contains (x, y), or None."""
+        for i in range(len(self.boxes) - 1, -1, -1):
+            b = self.boxes[i]
+            tl, br = b["top_left_bb"], b["bottom_right_bb"]
+            if tl[0] <= x <= br[0] and tl[1] <= y <= br[1]:
+                return i
+        return None
+
     def _click_event(self, event: int, x: int, y: int, flags, params) -> None:
         """
         Draws a box around the selection when the user clicks the screen. After two clicks a box is added around top
@@ -663,19 +639,54 @@ class BunkerHillCard:
             params (Any): Unused, needed by cv2
         """
 
-        # Update list of recent mouse locations
         self.mouse_locations.append([x, y])
         self.mouse_locations.pop(0)
 
-        # User clicks screen
+        if self.current_mode == 0 and self.move_mode:
+            if event == cv2.EVENT_LBUTTONDOWN:
+                self.last_button_q = False
+                idx = self._box_index_at_point(x, y)
+                if idx is not None:
+                    box = self.boxes[idx]
+                    self._drag_box_index = idx
+                    self._drag_grab = (x - box["top_left_bb"][0], y - box["top_left_bb"][1])
+                    self.selected_box_index = idx
+                return
+            if event == cv2.EVENT_MOUSEMOVE:
+                if self._drag_box_index is not None and (flags & cv2.EVENT_FLAG_LBUTTON):
+                    box = self.boxes[self._drag_box_index]
+                    tl = box["top_left_bb"]
+                    br = box["bottom_right_bb"]
+                    w = br[0] - tl[0]
+                    h = br[1] - tl[1]
+                    if w > 0 and h > 0:
+                        h_img, w_img = self.unmodified_current.shape[:2]
+                        new_tl_x = max(0, min(x - self._drag_grab[0], w_img - w))
+                        new_tl_y = max(0, min(y - self._drag_grab[1], h_img - h))
+                        box["top_left_bb"] = (new_tl_x, new_tl_y)
+                        box["bottom_right_bb"] = (new_tl_x + w, new_tl_y + h)
+                        box["bottom_left_bb"] = (new_tl_x, new_tl_y + h)
+                        box["top_right_bb"] = (new_tl_x + w, new_tl_y)
+                return
+            if event == cv2.EVENT_LBUTTONUP:
+                if self._drag_box_index is not None:
+                    box = self.boxes[self._drag_box_index]
+                    box["top_left_ref_img_path"] = self._create_anchor_image(
+                        box["top_left_bb"], box["vertex_offset"], self.unmodified_current
+                    )
+                    box["bottom_right_ref_img_path"] = self._create_anchor_image(
+                        box["bottom_right_bb"], box["vertex_offset"], self.unmodified_current
+                    )
+                    self._update_vertex_for_image(box, self.current_image)
+                    self._drag_box_index = None
+                return
+            return
+
         if event == cv2.EVENT_LBUTTONDOWN:
-            # clicking resets quit flag
             self.last_button_q = False
 
-            # save the selection
             self._create_selection(x, y)
 
-            # If the user has selected a box
             if len(self.selections) == 2:
                 self._create_box()
 
@@ -850,28 +861,63 @@ class BunkerHillCard:
         else:
             print("Nothing to undo...")
 
+    def _clone_box(self, source: dict, dy: int = 0, dx: int = 0) -> dict:
+        """
+        Create a deep copy of *source* box, shifting its bounding box by (dx, dy).
+        New anchor images are created at the shifted positions and vertex detection
+        runs on the current image.
+        """
+        clone = copy.deepcopy(source)
+        clone["color"] = (
+            int(np.random.randint(0, 256)),
+            int(np.random.randint(0, 256)),
+            int(np.random.randint(0, 256)),
+        )
+
+        tl = (source["top_left_bb"][0] + dx, source["top_left_bb"][1] + dy)
+        br = (source["bottom_right_bb"][0] + dx, source["bottom_right_bb"][1] + dy)
+        clone["top_left_bb"] = tl
+        clone["bottom_right_bb"] = br
+        clone["bottom_left_bb"] = (tl[0], br[1])
+        clone["top_right_bb"] = (br[0], tl[1])
+
+        tl_anchor = self._create_anchor_image(tl, clone["vertex_offset"], self.unmodified_current)
+        br_anchor = self._create_anchor_image(br, clone["vertex_offset"], self.unmodified_current)
+        clone["top_left_ref_img_path"] = tl_anchor
+        clone["bottom_right_ref_img_path"] = br_anchor
+
+        for fname in self.image_names:
+            clone[fname] = {
+                "top_left_vertex": (0, 0),
+                "top_right_vertex": (0, 0),
+                "bottom_left_vertex": (0, 0),
+                "bottom_right_vertex": (0, 0),
+            }
+
+        self._update_vertex_for_image(clone, self.current_image)
+        return clone
+
     def _undo_last_action(self) -> None:
         """
-        Removes the most recent action from its respective list. If the last action was defining a box vertex it will
-        reset the box selection list. If the most recent action was creating a box it will pop the box off the top of
-        the box list.
+        Removes the most recent action from its respective list. If the user has placed corner clicks for the
+        box-in-progress, removes only the last click (so the first corner can be corrected without starting over).
+        Otherwise removes the most recently completed box (last drawn), not merely whichever box is selected.
         """
         if len(self.selections) > 0:
-            print("Removing current selection(s)")
-            self.last_undo = (self.selections, self.selection_vertexes)
+            print("Removing last corner click")
+            self.last_undo = (list(self.selections), list(self.selection_vertexes))
             self.last_undo_type = "selections"
-            self.selections = []
-            self.selection_vertexes = []
+            self.selections.pop()
+            self.selection_vertexes.pop()
         else:
             if len(self.boxes) > 0:
-                print("Removing selected box")
-                self.last_undo = self.boxes[self.selected_box_index]
+                removed_index = len(self.boxes) - 1
+                removed = self.boxes.pop()
+                print(f"Removing last box: {removed.get('name', '?')!r}")
+                self.last_undo = removed
                 self.last_undo_type = "boxes"
-                self.boxes.remove(self.last_undo)
-                if self.selected_box_index > 0:
-                    self.selected_box_index -= 1
-                else:
-                    self.selected_box_index = -1
+                if self.selected_box_index == removed_index:
+                    self.selected_box_index = len(self.boxes) - 1 if self.boxes else -1
             else:
                 print("Nothing to undo...")
 
@@ -1031,6 +1077,23 @@ class BunkerHillCard:
             self.last_button_ret = False
             self.display_state += 1
             print(f"Display state: {self.display_state % 3}")
+        elif key == ord("n"):
+            self.last_button_q = False
+            self.last_button_ret = False
+            self.show_box_names = not self.show_box_names
+            print(f"Box name labels: {'on' if self.show_box_names else 'off'}")
+        elif key == ord("m"):
+            self.last_button_q = False
+            self.last_button_ret = False
+            self.move_mode = not self.move_mode
+            self._drag_box_index = None
+            if not self.move_mode:
+                self.selections = []
+                self.selection_vertexes = []
+            print(
+                f"Move mode: {'on' if self.move_mode else 'off'} — "
+                + ("click inside a box and drag to reposition." if self.move_mode else "")
+            )
         elif key == ord("u"):
             self.last_button_q = False
             self.last_button_ret = False
@@ -1166,10 +1229,9 @@ class BunkerHillCard:
 
                         cropped = c_image[top_left_y:bottom_right_y, top_left_x:bottom_right_x]
 
-                        # make appropriate directories and image paths
+                        # make appropriate directories and image paths (makedirs for section/option names)
                         image_dir = os.path.join(base_dir, box_name)
-                        if not os.path.exists(image_dir):
-                            os.mkdir(image_dir)
+                        os.makedirs(image_dir, exist_ok=True)
                         save_path = os.path.join(image_dir, image_name)
                         try:
                             cv2.imwrite(save_path, cropped)
@@ -1233,6 +1295,46 @@ class BunkerHillCard:
                 and self.boxes[self.selected_box_index]["stroke_size"] > 1
             ):
                 self.boxes[self.selected_box_index]["stroke_size"] -= 1
+
+        elif key == ord("g"):
+            self.last_button_q = False
+            self.last_button_ret = False
+            if len(self.boxes) > 0 and len(self.selections) == 0:
+                source = self.boxes[self.selected_box_index]
+                box_h = source["bottom_right_bb"][1] - source["top_left_bb"][1]
+                parent = source["name"].rsplit("/", 1)[0] if "/" in source["name"] else source["name"]
+                raw = input(f"Clone group from '{source['name']}'. Enter sibling names (comma-separated): ")
+                names = [n.strip() for n in raw.split(",") if n.strip()]
+                if names:
+                    for i, name in enumerate(names):
+                        clone = self._clone_box(source, dy=box_h * (i + 1))
+                        clone["name"] = f"{parent}/{name}"
+                        self.boxes.append(clone)
+                    self.selected_box_index = len(self.boxes) - 1
+                    print(f"Created {len(names)} clones: {', '.join(f'{parent}/{n}' for n in names)}")
+                else:
+                    print("No names provided, clone cancelled.")
+            else:
+                print("Select a box first (no pending selection allowed).")
+
+        elif key == ord("c"):
+            self.last_button_q = False
+            self.last_button_ret = False
+            if len(self.boxes) > 0 and len(self.selections) == 0:
+                source = self.boxes[self.selected_box_index]
+                box_h = source["bottom_right_bb"][1] - source["top_left_bb"][1]
+                clone = self._clone_box(source, dy=box_h)
+                parent = source["name"].rsplit("/", 1)[0] if "/" in source["name"] else source["name"]
+                clone["name"] = f"{parent}/clone_{len(self.boxes)}"
+                self.boxes.append(clone)
+                self.selected_box_index = len(self.boxes) - 1
+                self.word = clone["name"]
+                self.cursor_index = len(clone["name"])
+                self.current_mode = 1
+                self.started_typing = False
+                print(f"Cloned box below '{source['name']}'. Rename now (press Enter/Esc to finish).")
+            else:
+                print("Select a box first (no pending selection allowed).")
 
         elif key == ord("s"):
             self.last_button_q = False

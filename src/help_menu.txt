@@ -6,7 +6,7 @@ save your selections so it can run data analysis on the census cards. Below is
 a list of each button you can use while drawing the boxes:
 
 _______________________________Box mode controls____________________________
-Image mode is the default mode. This mode allows the user to select the
+Box mode is the default mode. This mode allows the user to select the
 vertical edges of a census card box so that the box can be broken down into
 sub images for later analysis.
 
@@ -18,11 +18,15 @@ Controls:
 '↑'=Up: Select the next box as current. Affects which box is modified.
 '↓'=Down: Select the prev box as current. Affects which box is modified.
 'h'=Help: print this help menu to the terminal.
-'u'=Undo: Undo your last action.
+'u'=Undo: While drawing a box, removes the last corner click; otherwise removes the last completed box (most recently drawn).
 'r'=Redo: Redo the last undo.
 'd'=Display: Toggle between displaying and hiding the boxes you have drawn.
+'n'=Names: Toggle box name labels on the main image (box outlines stay visible).
+'m'=Move mode: Toggle click-drag to reposition an existing box (click inside the box, drag, release). Turn off to draw new boxes again.
 't'=Text mode: Enter text mode on most recent box.
 'l'=Image mode: Enter image mode on current image.
+'c'=Clone: Duplicate selected box below it. Enters text mode for renaming.
+'g'=Group clone: Batch-clone selected box downward. Prompts for sibling names.
 'q'=Quit: Quit the application (without saving!).
 's'=Save: saves your selections as sub-problems. Only use when you are done!
 'ctrl+v'=preview: Show/Hide preview box.
