@@ -2,22 +2,22 @@
 
 Python tools for processing census cards: deskew/trim, interactive box selection, OCR, checkbox classification, and analysis.
 
-## Documentation for day-to-day use
+## Setup and usage
 
-**Team members** should start with **[RUNBOOK_Team.md](RUNBOOK_Team.md)**. It explains how to install dependencies, run the card UI, find sliced outputs, optionally run the quick accuracy script, and (if needed) configure an **OpenAI API key** with copy-paste steps for Windows.
+**To install, configure, and run this project on Windows or Mac, follow [RUNBOOK.md](RUNBOOK.md).** It covers getting the code (git or ZIP), Python and ImageMagick setup, the optional OpenAI API key, switching to the `quick_accuracy_script` branch, running the box-drawing tool, and finding your sliced outputs.
 
 ---
 
 ## Key features
 
 1. **Card selection UI** — Draw and name regions on cards; export aligned crops and `boxes.json`. Entry point: `src/main.py`. Keyboard reference: `src/help_menu.txt`.
-2. **Quick accuracy extraction** — `quick_accuracy_extract.py` samples cropped fields, runs OCR (default: **EasyOCR**, no API key), and writes CSV/JSON under `data/`. Optional **`--engine openai`** uses GPT-4o vision; see **RUNBOOK_Team.md** for obtaining and setting **`OPENAI_API_KEY`**.
+2. **Quick accuracy extraction** (on the **`quick_accuracy_script`** branch) — `quick_accuracy_extract.py` samples cropped fields, runs OCR (default: **EasyOCR**, no API key), and writes CSV/JSON under `data/`. Optional **`--engine openai`** uses GPT-4o vision.
 3. **Notebooks** — Image prep, checkbox training, header/body text and checkboxes, analysis. Numbered pipeline: **01 → 05** in **`src/notebooks`**.
 4. **Optional cloud OCR** — Google Cloud Vision and other engines are available in code for some workflows; they need separate cloud setup and credentials.
 
 ---
 
-## Repository layout (short)
+## Repository layout
 
 | Path | Role |
 |------|------|
@@ -25,61 +25,33 @@ Python tools for processing census cards: deskew/trim, interactive box selection
 | `src/card_selection_ui.py` | UI implementation |
 | `src/ocr.py` | OCR backends (Tesseract, Paddle, EasyOCR, Cloud Vision, TrOCR, OpenAI vision) |
 | `src/region_processing.py` | Checkbox/OCR batch helpers for regions |
-| `quick_accuracy_extract.py` | Sample OCR export for accuracy checks |
+| `quick_accuracy_extract.py` | Sample OCR export (on the `quick_accuracy_script` branch) |
 | `src/notebooks/*.ipynb` | Processing and analysis pipeline |
 
 ---
 
-## Running the UI
+## Full processing pipeline (notebooks)
 
-From the project root, with your virtual environment activated:
+For the complete workflow beyond box selection, run the Jupyter notebooks in order:
 
-```text
-python -m src.main
-```
-
-Optional arguments:
-
-```text
-python -m src.main --images_dir path\to\images --save_dir path\to\save
-python -m src.main --region_mode
-```
-
-Use **`--images_dir`** when images are not in the default `sampleimgs` folder. See **RUNBOOK_Team.md** for defaults and troubleshooting.
-
----
-
-## Quick accuracy script
-
-After slices exist under `data/sliced_cards/<date>/`:
-
-```text
-python quick_accuracy_extract.py
-python quick_accuracy_extract.py --run_dir data\sliced_cards\MM-DD-YYYY --engine openai
-```
-
-OpenAI requires **`OPENAI_API_KEY`**; see **RUNBOOK_Team.md** for full instructions.
-
----
-
-## Full processing procedure (reference)
-
-1. Clean source images: **`src/notebooks/01_Image_Deskew_and_Trim.ipynb`**.
-2. Run the **card box selection UI** to define card-level regions; vertex search aligns crops across images (runtime depends on image count and box count).
-3. Run the UI with **`--region_mode`** / `no_find_vertex` workflows on cropped subfolders to mark text fields and checkboxes (see `main.py argparse` and runbook).
-4. If needed, train a checkbox model (**`src/notebooks/02_Train_Checkbox_Model.ipynb`**) from labeled crops.
+1. **`src/notebooks/01_Image_Deskew_and_Trim.ipynb`** — clean source images.
+2. Run the **card box selection UI** (`python -m src.main`) to define card-level regions; vertex search aligns crops across images.
+3. Run the UI with **`--region_mode`** on cropped subfolders to mark text fields and checkboxes.
+4. **`src/notebooks/02_Train_Checkbox_Model.ipynb`** — train a checkbox model from labeled crops, if needed.
 5. **`src/notebooks/03_Header_Text_Detection.ipynb`** — start or extend the results table.
 6. **`src/notebooks/04_Body_Detect_Text_And_Checkbox.ipynb`** — body fields and checkbox classification into the table.
 7. **`src/notebooks/05_Analyze_Data.ipynb`** — summaries and visualizations.
+
+The notebook pipeline may require **Jupyter**, additional credentials (e.g. Google Cloud Vision), and more disk space than the basic UI workflow.
 
 ---
 
 ## Dependencies
 
-Install from the project root:
+Install from the project root inside an active virtual environment — see **[RUNBOOK.md](RUNBOOK.md)** for the full setup:
 
 ```text
 pip install -r requirements.txt
 ```
 
-Some features (ImageMagick/Wand, cloud APIs, GPU libraries) need extra system or cloud setup described in **RUNBOOK_Team.md**.
+Some features (ImageMagick/Wand, cloud APIs, GPU libraries) need extra system or cloud setup described in **[RUNBOOK.md](RUNBOOK.md)**.
